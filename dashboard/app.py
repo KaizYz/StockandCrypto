@@ -5,7 +5,7 @@ import hashlib
 import importlib
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,7 @@ import requests
 import streamlit as st
 
 from src.markets.session_forecast import build_session_forecast_bundle
+from src.markets import simulated_kline as _sim_kline
 from src.markets.snapshot import build_market_snapshot_from_instruments
 from src.markets.universe import get_universe_catalog, load_universe
 from src.models.policy import apply_policy_frame
@@ -25,6 +26,25 @@ from src.execution import (
     summarize_execution,
 )
 from src.utils.config import load_config
+
+SimulationConfig = _sim_kline.SimulationConfig
+build_simulation_summary = _sim_kline.build_simulation_summary
+estimate_tp_sl_hit_prob = _sim_kline.estimate_tp_sl_hit_prob
+simulate_future_ohlc = _sim_kline.simulate_future_ohlc
+simulate_daily_future_ohlc = getattr(_sim_kline, "simulate_daily_future_ohlc", None)
+
+if simulate_daily_future_ohlc is None:
+    def simulate_daily_future_ohlc(
+        daily_profile: pd.DataFrame,
+        *,
+        current_price: float,
+        reference_ts_bj: Any = None,
+        config: Any = None,
+    ) -> Dict[str, Any]:
+        raise RuntimeError(
+            "simulate_daily_future_ohlc is unavailable in src.markets.simulated_kline; "
+            "please restart Streamlit and ensure the latest code is loaded."
+        )
 
 
 def _load_csv(path: Path) -> pd.DataFrame:
@@ -304,6 +324,665 @@ def _build_session_bundle_cached(
         config_path=config_path,
     )
     return bundle.hourly, bundle.blocks, bundle.daily, bundle.metadata
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _build_simulated_kline_cached(
+    step_profile: pd.DataFrame,
+    *,
+    current_price: float,
+    market_mode: str,
+    active_session: str,
+    reference_ts_bj: str,
+    n_steps: int,
+    n_paths: int,
+    seed: int,
+    agg: str,
+    vol_scale: float,
+    sigma_floor: float,
+    sigma_cap: float,
+    wick_cap: float,
+    wick_scale: float,
+    max_ops: int,
+    fit_tol_p: float,
+    fit_tol_q50: float,
+    fit_tol_qband: float,
+    schema_version: str = "session_sim_kline_v1",
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, object], Dict[str, object], pd.DataFrame, np.ndarray]:
+    _ = schema_version
+    cfg = SimulationConfig(
+        n_steps=int(n_steps),
+        n_paths=int(n_paths),
+        seed=int(seed),
+        agg=str(agg),
+        vol_scale=float(vol_scale),
+        sigma_floor=float(sigma_floor),
+        sigma_cap=float(sigma_cap),
+        wick_cap=float(wick_cap),
+        wick_scale=float(wick_scale),
+        max_ops=int(max_ops),
+        fit_tol_p=float(fit_tol_p),
+        fit_tol_q50=float(fit_tol_q50),
+        fit_tol_qband=float(fit_tol_qband),
+    )
+    res = simulate_future_ohlc(
+        step_profile=step_profile,
+        current_price=float(current_price),
+        market_mode=str(market_mode),
+        active_session=str(active_session or ""),
+        reference_ts_bj=reference_ts_bj,
+        config=cfg,
+    )
+    return (
+        res.get("sim_df", pd.DataFrame()),
+        res.get("sim_df_representative", pd.DataFrame()),
+        res.get("summary", {}),
+        res.get("diagnostics", {}),
+        res.get("terminal_df", pd.DataFrame()),
+        np.asarray(res.get("paths_close", np.empty((0, 0), dtype=float))),
+    )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _build_daily_simulated_kline_cached(
+    daily_profile: pd.DataFrame,
+    *,
+    current_price: float,
+    reference_ts_bj: str,
+    n_steps: int,
+    n_paths: int,
+    seed: int,
+    agg: str,
+    vol_scale: float,
+    sigma_floor: float,
+    sigma_cap: float,
+    wick_cap: float,
+    wick_scale: float,
+    max_ops: int,
+    fit_tol_p: float,
+    fit_tol_q50: float,
+    fit_tol_qband: float,
+    schema_version: str = "session_sim_kline_daily_v1",
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, object], Dict[str, object], pd.DataFrame, np.ndarray]:
+    _ = schema_version
+    cfg = SimulationConfig(
+        n_steps=int(n_steps),
+        n_paths=int(n_paths),
+        seed=int(seed),
+        agg=str(agg),
+        vol_scale=float(vol_scale),
+        sigma_floor=float(sigma_floor),
+        sigma_cap=float(sigma_cap),
+        wick_cap=float(wick_cap),
+        wick_scale=float(wick_scale),
+        max_ops=int(max_ops),
+        fit_tol_p=float(fit_tol_p),
+        fit_tol_q50=float(fit_tol_q50),
+        fit_tol_qband=float(fit_tol_qband),
+    )
+    res = simulate_daily_future_ohlc(
+        daily_profile=daily_profile,
+        current_price=float(current_price),
+        reference_ts_bj=reference_ts_bj,
+        config=cfg,
+    )
+    return (
+        res.get("sim_df", pd.DataFrame()),
+        res.get("sim_df_representative", pd.DataFrame()),
+        res.get("summary", {}),
+        res.get("diagnostics", {}),
+        res.get("terminal_df", pd.DataFrame()),
+        np.asarray(res.get("paths_close", np.empty((0, 0), dtype=float))),
+    )
+
+
+INDEX_SESSION_UNIVERSE: Dict[str, Dict[str, str]] = {
+    "sse": {
+        "name_zh": "上证指数",
+        "name_en": "SSE Composite",
+        "symbol": "000001.SS",
+        "market": "cn_equity",
+        "timezone": "Asia/Shanghai",
+    },
+    "djia": {
+        "name_zh": "道琼斯指数",
+        "name_en": "Dow Jones Industrial Average",
+        "symbol": "^DJI",
+        "market": "us_equity",
+        "timezone": "America/New_York",
+    },
+    "nasdaq": {
+        "name_zh": "纳斯达克指数",
+        "name_en": "NASDAQ Composite",
+        "symbol": "^IXIC",
+        "market": "us_equity",
+        "timezone": "America/New_York",
+    },
+    "sp500": {
+        "name_zh": "标普500指数",
+        "name_en": "S&P 500",
+        "symbol": "^GSPC",
+        "market": "us_equity",
+        "timezone": "America/New_York",
+    },
+}
+
+INDEX_ACTIVE_SESSION: Dict[str, str] = {
+    "sse": "asia",
+    "djia": "us",
+    "nasdaq": "us",
+    "sp500": "us",
+}
+
+
+def _index_active_session(index_key: str) -> str:
+    key = str(index_key).strip().lower()
+    return INDEX_ACTIVE_SESSION.get(key, "us")
+
+
+def _yahoo_fetch_chart_bars(symbol: str, interval: str, range_text: str) -> Tuple[pd.DataFrame, str]:
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {
+        "interval": str(interval),
+        "range": str(range_text),
+        "includePrePost": "false",
+        "events": "div,splits",
+    }
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    r = requests.get(url, params=params, headers=headers, timeout=20)
+    r.raise_for_status()
+    payload = r.json()
+    result = payload.get("chart", {}).get("result", [])
+    if not result:
+        err = payload.get("chart", {}).get("error")
+        raise RuntimeError(f"Yahoo chart empty for {symbol}: {err}")
+    node = result[0]
+    ts = pd.to_datetime(node.get("timestamp", []), unit="s", utc=True, errors="coerce")
+    quote_rows = node.get("indicators", {}).get("quote", [])
+    if not quote_rows:
+        raise RuntimeError(f"Yahoo chart quote missing for {symbol}")
+    q = quote_rows[0]
+    out = pd.DataFrame(
+        {
+            "timestamp_utc": ts,
+            "open": pd.to_numeric(q.get("open", []), errors="coerce"),
+            "high": pd.to_numeric(q.get("high", []), errors="coerce"),
+            "low": pd.to_numeric(q.get("low", []), errors="coerce"),
+            "close": pd.to_numeric(q.get("close", []), errors="coerce"),
+            "volume": pd.to_numeric(q.get("volume", []), errors="coerce"),
+        }
+    )
+    out = out.dropna(subset=["timestamp_utc", "close"]).sort_values("timestamp_utc")
+    out = out.drop_duplicates(subset=["timestamp_utc"]).reset_index(drop=True)
+    if out.empty:
+        raise RuntimeError(f"Yahoo chart has no valid bars for {symbol}/{interval}/{range_text}")
+    return out, "yahoo_chart"
+
+
+def _yahoo_fetch_live_price(symbol: str) -> Tuple[float, str]:
+    url = "https://query1.finance.yahoo.com/v7/finance/quote"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    r = requests.get(url, params={"symbols": symbol}, headers=headers, timeout=12)
+    r.raise_for_status()
+    payload = r.json()
+    rows = payload.get("quoteResponse", {}).get("result", [])
+    if not rows:
+        raise RuntimeError(f"Yahoo quote empty for {symbol}")
+    row = rows[0]
+    for field in ["regularMarketPrice", "postMarketPrice", "preMarketPrice"]:
+        v = _safe_float(row.get(field))
+        if np.isfinite(v):
+            return float(v), "yahoo_quote"
+    raise RuntimeError(f"Yahoo quote missing price fields for {symbol}")
+
+
+def _session_from_hour_bj(hour_bj: int) -> str:
+    h = int(hour_bj)
+    if 8 <= h <= 15:
+        return "asia"
+    if 16 <= h <= 23:
+        return "europe"
+    return "us"
+
+
+def _weighted_average(values: pd.Series, weights: pd.Series) -> float:
+    v = pd.to_numeric(values, errors="coerce")
+    w = pd.to_numeric(weights, errors="coerce").fillna(0.0)
+    mask = v.notna() & w.gt(0)
+    if not mask.any():
+        out = v.mean()
+        return float(out) if pd.notna(out) else float("nan")
+    return float((v[mask] * w[mask]).sum() / w[mask].sum())
+
+
+def _build_hourly_profile_from_index_hist(hourly_hist: pd.DataFrame, horizon_hours: int, mode: str) -> pd.DataFrame:
+    h = int(max(1, horizon_hours))
+    work = hourly_hist[["timestamp_utc", "close"]].copy()
+    work["ret_h"] = work["close"].shift(-h) / work["close"] - 1.0
+    work = work.dropna(subset=["ret_h"]).copy()
+    if work.empty:
+        return pd.DataFrame()
+    work["hour_bj"] = work["timestamp_utc"].dt.tz_convert("Asia/Shanghai").dt.hour
+    global_ret = pd.to_numeric(work["ret_h"], errors="coerce").dropna()
+    g_p_up = float((global_ret > 0).mean()) if len(global_ret) > 0 else 0.5
+    g_q10 = float(global_ret.quantile(0.1)) if len(global_ret) > 0 else -0.01
+    g_q50 = float(global_ret.quantile(0.5)) if len(global_ret) > 0 else 0.0
+    g_q90 = float(global_ret.quantile(0.9)) if len(global_ret) > 0 else 0.01
+
+    def _group(df: pd.DataFrame) -> pd.DataFrame:
+        return (
+            df.groupby("hour_bj")["ret_h"]
+            .agg(
+                p_up=lambda x: float((x > 0).mean()),
+                q10=lambda x: float(x.quantile(0.1)),
+                q50=lambda x: float(x.quantile(0.5)),
+                q90=lambda x: float(x.quantile(0.9)),
+                sample_size="count",
+            )
+            .reset_index()
+        )
+
+    idx_df = pd.DataFrame({"hour_bj": list(range(24))})
+    long_stats = idx_df.merge(_group(work), on="hour_bj", how="left").rename(
+        columns={
+            "p_up": "p_up_long",
+            "q10": "q10_long",
+            "q50": "q50_long",
+            "q90": "q90_long",
+            "sample_size": "sample_size_long",
+        }
+    )
+
+    use_forecast = str(mode).strip().lower() == "forecast"
+    if use_forecast:
+        cut_ts = work["timestamp_utc"].max() - pd.Timedelta(days=90)
+        recent = work[work["timestamp_utc"] >= cut_ts].copy()
+        recent_stats = idx_df.merge(_group(recent), on="hour_bj", how="left").rename(
+            columns={
+                "p_up": "p_up_recent",
+                "q10": "q10_recent",
+                "q50": "q50_recent",
+                "q90": "q90_recent",
+                "sample_size": "sample_size_recent",
+            }
+        )
+        merged = long_stats.merge(recent_stats, on="hour_bj", how="left")
+        w = (
+            pd.to_numeric(merged.get("sample_size_recent"), errors="coerce")
+            .fillna(0.0)
+            .clip(0.0, 96.0)
+            / 96.0
+        ) * 0.75
+        out = pd.DataFrame({"hour_bj": merged["hour_bj"]})
+        for col in ["p_up", "q10", "q50", "q90"]:
+            c_long = f"{col}_long"
+            c_recent = f"{col}_recent"
+            lv = pd.to_numeric(merged.get(c_long), errors="coerce")
+            rv = pd.to_numeric(merged.get(c_recent), errors="coerce")
+            out[col] = np.where(
+                rv.notna(),
+                (1.0 - w) * lv.fillna({"p_up": g_p_up, "q10": g_q10, "q50": g_q50, "q90": g_q90}[col]) + w * rv,
+                lv,
+            )
+        out["sample_size"] = pd.to_numeric(merged.get("sample_size_long"), errors="coerce").fillna(0).astype(int)
+    else:
+        out = long_stats.rename(
+            columns={
+                "p_up_long": "p_up",
+                "q10_long": "q10",
+                "q50_long": "q50",
+                "q90_long": "q90",
+                "sample_size_long": "sample_size",
+            }
+        )[["hour_bj", "p_up", "q10", "q50", "q90", "sample_size"]].copy()
+
+    out["p_up"] = pd.to_numeric(out.get("p_up"), errors="coerce").fillna(g_p_up).clip(0.01, 0.99)
+    out["q10"] = pd.to_numeric(out.get("q10"), errors="coerce").fillna(g_q10)
+    out["q50"] = pd.to_numeric(out.get("q50"), errors="coerce").fillna(g_q50)
+    out["q90"] = pd.to_numeric(out.get("q90"), errors="coerce").fillna(g_q90)
+    out["sample_size"] = pd.to_numeric(out.get("sample_size"), errors="coerce").fillna(0).astype(int)
+    return out
+
+
+def _build_daily_rows_from_index_hist(daily_hist: pd.DataFrame, lookforward_days: int, now_bj: pd.Timestamp, mode: str) -> pd.DataFrame:
+    work = daily_hist[["timestamp_utc", "close"]].copy()
+    work["ret_1d"] = work["close"].shift(-1) / work["close"] - 1.0
+    work = work.dropna(subset=["ret_1d"]).copy()
+    if work.empty:
+        return pd.DataFrame()
+    work["date_bj"] = work["timestamp_utc"].dt.tz_convert("Asia/Shanghai").dt.normalize()
+    work["day_of_week"] = work["date_bj"].dt.day_name()
+    grouped = (
+        work.groupby("day_of_week")["ret_1d"]
+        .agg(
+            p_up=lambda x: float((x > 0).mean()),
+            q10=lambda x: float(x.quantile(0.1)),
+            q50=lambda x: float(x.quantile(0.5)),
+            q90=lambda x: float(x.quantile(0.9)),
+            sample_size="count",
+        )
+        .reset_index()
+    )
+    grouped_map = {str(r["day_of_week"]): r for r in grouped.to_dict("records")}
+    ret = pd.to_numeric(work["ret_1d"], errors="coerce").dropna()
+    fallback = {
+        "p_up": float((ret > 0).mean()) if len(ret) > 0 else 0.5,
+        "q10": float(ret.quantile(0.1)) if len(ret) > 0 else -0.02,
+        "q50": float(ret.quantile(0.5)) if len(ret) > 0 else 0.0,
+        "q90": float(ret.quantile(0.9)) if len(ret) > 0 else 0.02,
+        "sample_size": int(len(ret)),
+    }
+    recent = ret.tail(80)
+    mu_recent = float(recent.mean()) if len(recent) > 0 else float(fallback["q50"])
+    sigma_recent = float(recent.std(ddof=0)) if len(recent) > 0 else abs(float(fallback["q90"] - fallback["q10"])) / 2.56
+    if not np.isfinite(sigma_recent) or sigma_recent <= 1e-6:
+        sigma_recent = 0.01
+    use_forecast = str(mode).strip().lower() == "forecast"
+    rows: List[Dict[str, Any]] = []
+    for i in range(1, int(lookforward_days) + 1):
+        d = (now_bj.normalize() + pd.Timedelta(days=i)).tz_localize(None)
+        dow = pd.Timestamp(d).day_name()
+        dow_stats = grouped_map.get(dow, fallback)
+        if use_forecast:
+            dow_mu = _safe_float(dow_stats.get("q50"))
+            if not np.isfinite(dow_mu):
+                dow_mu = float(fallback["q50"])
+            mu_step = 0.65 * mu_recent + 0.35 * dow_mu
+            decay = float(np.exp(-0.08 * (i - 1)))
+            q50 = float((1.0 + mu_step * decay) ** i - 1.0)
+            sigma_h = sigma_recent * np.sqrt(i)
+            q10 = float(q50 - 1.28 * sigma_h)
+            q90 = float(q50 + 1.28 * sigma_h)
+            z = q50 / max(sigma_h, 1e-6)
+            p_up = float(1.0 / (1.0 + np.exp(-1.7 * z)))
+            sample_size = int(len(recent))
+        else:
+            p_up = _safe_float(dow_stats.get("p_up"))
+            q10 = _safe_float(dow_stats.get("q10"))
+            q50 = _safe_float(dow_stats.get("q50"))
+            q90 = _safe_float(dow_stats.get("q90"))
+            sample_size = int(dow_stats.get("sample_size", 0))
+        rows.append(
+            {
+                "day_index": i,
+                "date_bj": pd.Timestamp(d),
+                "day_of_week": dow,
+                "p_up": p_up,
+                "q10": q10,
+                "q50": q50,
+                "q90": q90,
+                "sample_size": sample_size,
+                "start_window_top1": "W1",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _apply_index_labels_and_prices(df: pd.DataFrame, current_price: float) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    out["p_up"] = pd.to_numeric(out.get("p_up"), errors="coerce").fillna(0.5).clip(0.01, 0.99)
+    out["p_down"] = 1.0 - out["p_up"]
+    out["q10_change_pct"] = pd.to_numeric(out.get("q10"), errors="coerce")
+    out["q50_change_pct"] = pd.to_numeric(out.get("q50"), errors="coerce")
+    out["q90_change_pct"] = pd.to_numeric(out.get("q90"), errors="coerce")
+    out["volatility_score"] = (out["q90_change_pct"] - out["q10_change_pct"]).abs()
+    out["target_price_q10"] = current_price * (1.0 + out["q10_change_pct"])
+    out["target_price_q50"] = current_price * (1.0 + out["q50_change_pct"])
+    out["target_price_q90"] = current_price * (1.0 + out["q90_change_pct"])
+    q50v = pd.to_numeric(out.get("q50_change_pct"), errors="coerce").fillna(0.0)
+    out["trend_label"] = np.where(q50v > 0.002, "偏多", np.where(q50v < -0.002, "偏空", "震荡"))
+    vol = pd.to_numeric(out.get("volatility_score"), errors="coerce").fillna(0.0)
+    out["risk_level"] = np.where(
+        vol < 0.008,
+        "low",
+        np.where(vol < 0.02, "medium", np.where(vol < 0.04, "high", "extreme")),
+    )
+    sample = pd.to_numeric(out.get("sample_size"), errors="coerce").fillna(0.0)
+    strength = (out["p_up"] - 0.5).abs()
+    out["confidence_score"] = (40.0 + strength * 220.0 + np.log1p(sample) * 4.0).clip(20.0, 99.0)
+    if "start_window_top1" not in out.columns:
+        out["start_window_top1"] = "W1"
+    return out
+
+
+def _build_index_session_blocks(hourly_df: pd.DataFrame) -> pd.DataFrame:
+    if hourly_df.empty:
+        return pd.DataFrame()
+    work = hourly_df.copy()
+    work["session_name"] = work["hour_bj"].map(_session_from_hour_bj)
+    grouped = (
+        work.groupby("session_name", as_index=False)
+        .apply(
+            lambda g: pd.Series(
+                {
+                    "p_up": _weighted_average(g["p_up"], g["sample_size"]),
+                    "q10_change_pct": _weighted_average(g["q10_change_pct"], g["sample_size"]),
+                    "q50_change_pct": _weighted_average(g["q50_change_pct"], g["sample_size"]),
+                    "q90_change_pct": _weighted_average(g["q90_change_pct"], g["sample_size"]),
+                    "volatility_score": _weighted_average(g["volatility_score"], g["sample_size"]),
+                    "confidence_score": _weighted_average(g["confidence_score"], g["sample_size"]),
+                    "sample_size": int(pd.to_numeric(g["sample_size"], errors="coerce").fillna(0).sum()),
+                }
+            )
+        )
+        .reset_index(drop=True)
+    )
+    grouped["p_down"] = 1.0 - grouped["p_up"]
+    grouped["session_name_cn"] = grouped["session_name"].map(
+        {"asia": "亚盘", "europe": "欧盘", "us": "美盘"}
+    )
+    grouped["session_hours"] = grouped["session_name"].map(
+        {"asia": "08:00-15:59", "europe": "16:00-23:59", "us": "00:00-07:59"}
+    )
+    return grouped
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _build_index_session_bundle_cached(
+    index_key: str,
+    mode: str,
+    horizon_hours: int,
+    lookforward_days: int,
+    refresh_token: int = 0,
+    config_path: str = "configs/config.yaml",
+    schema_version: str = "index_session_page_v1",
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, object]]:
+    _ = refresh_token
+    _ = schema_version
+    cfg = _load_main_config_cached(config_path)
+    if index_key not in INDEX_SESSION_UNIVERSE:
+        raise ValueError(f"Unsupported index key: {index_key}")
+    inst = INDEX_SESSION_UNIVERSE[index_key]
+    symbol = str(inst["symbol"])
+    market = str(inst["market"])
+    timezone = str(inst["timezone"])
+    now_bj = pd.Timestamp.now(tz="Asia/Shanghai")
+    mode_requested = str(mode).strip().lower()
+    if mode_requested not in {"forecast", "seasonality"}:
+        mode_requested = "forecast"
+    active_session = _index_active_session(index_key)
+
+    hourly_hist, hourly_source = _yahoo_fetch_chart_bars(symbol, interval="60m", range_text="730d")
+    daily_hist, daily_source = _yahoo_fetch_chart_bars(symbol, interval="1d", range_text="10y")
+    try:
+        current_price, ticker_source = _yahoo_fetch_live_price(symbol)
+    except Exception:
+        current_price = float(pd.to_numeric(hourly_hist["close"], errors="coerce").dropna().iloc[-1])
+        ticker_source = "yahoo_chart_latest"
+
+    hourly_profile = _build_hourly_profile_from_index_hist(
+        hourly_hist=hourly_hist,
+        horizon_hours=int(horizon_hours),
+        mode=mode_requested,
+    )
+    if hourly_profile.empty:
+        raise RuntimeError(f"Hourly profile is empty for {symbol}")
+    hourly = _apply_index_labels_and_prices(hourly_profile.rename(columns={"q10": "q10", "q50": "q50", "q90": "q90"}), current_price)
+    hourly["hour_label"] = hourly["hour_bj"].map(lambda x: f"{int(x):02d}:00")
+    hourly["session_name"] = hourly["hour_bj"].map(_session_from_hour_bj)
+    hourly["session_name_cn"] = hourly["session_name"].map({"asia": "亚盘", "europe": "欧盘", "us": "美盘"})
+    hourly["market"] = market
+    hourly["market_type"] = "index"
+    hourly["symbol"] = symbol
+    hourly["exchange"] = "yahoo"
+    hourly["exchange_actual"] = "yahoo"
+    hourly["mode_requested"] = mode_requested
+    hourly["mode"] = mode_requested
+    hourly["horizon"] = f"{int(horizon_hours)}h"
+    hourly["is_trading_hour"] = (hourly["session_name"] == active_session).astype(int)
+
+    hourly_active = hourly[hourly["is_trading_hour"] == 1].copy()
+
+    blocks = _build_index_session_blocks(hourly_active)
+    blocks = _apply_index_labels_and_prices(
+        blocks.rename(
+            columns={
+                "q10_change_pct": "q10",
+                "q50_change_pct": "q50",
+                "q90_change_pct": "q90",
+            }
+        ),
+        current_price,
+    )
+    blocks["market"] = market
+    blocks["market_type"] = "index"
+    blocks["symbol"] = symbol
+    blocks["exchange"] = "yahoo"
+    blocks["exchange_actual"] = "yahoo"
+    blocks["mode_requested"] = mode_requested
+    blocks["mode"] = mode_requested
+    blocks["horizon"] = f"{int(horizon_hours)}h"
+
+    daily_rows = _build_daily_rows_from_index_hist(
+        daily_hist=daily_hist,
+        lookforward_days=int(lookforward_days),
+        now_bj=now_bj,
+        mode=mode_requested,
+    )
+    daily = _apply_index_labels_and_prices(daily_rows, current_price)
+    daily["date_bj"] = pd.to_datetime(daily["date_bj"], errors="coerce").dt.strftime("%Y-%m-%d")
+    daily["market"] = market
+    daily["market_type"] = "index"
+    daily["symbol"] = symbol
+    daily["exchange"] = "yahoo"
+    daily["exchange_actual"] = "yahoo"
+    daily["mode_requested"] = mode_requested
+    daily["mode"] = mode_requested
+    daily["horizon"] = "1d"
+
+    # Add policy layer so index page keeps the same decision language.
+    for frame in [hourly, blocks, daily]:
+        frame["news_score_30m"] = 0.0
+        frame["news_score_120m"] = 0.0
+        frame["news_score_2h"] = 0.0
+        frame["news_score_24h"] = 0.0
+        frame["news_count_30m"] = 0.0
+        frame["news_burst_zscore"] = 0.0
+        frame["news_event_risk"] = 0.0
+        frame["news_gate_pass"] = 1.0
+        frame["news_risk_level"] = "low"
+        frame["news_reason_codes"] = ""
+    hourly = apply_policy_frame(
+        hourly,
+        cfg,
+        market_col="market",
+        market_type_col="market_type",
+        p_up_col="p_up",
+        q10_col="q10_change_pct",
+        q50_col="q50_change_pct",
+        q90_col="q90_change_pct",
+        volatility_col="volatility_score",
+        confidence_col="confidence_score",
+        current_price_col="current_price",
+        risk_level_col="risk_level",
+    )
+    blocks = apply_policy_frame(
+        blocks,
+        cfg,
+        market_col="market",
+        market_type_col="market_type",
+        p_up_col="p_up",
+        q10_col="q10_change_pct",
+        q50_col="q50_change_pct",
+        q90_col="q90_change_pct",
+        volatility_col="volatility_score",
+        confidence_col="confidence_score",
+        current_price_col="current_price",
+        risk_level_col="risk_level",
+    )
+    daily = apply_policy_frame(
+        daily,
+        cfg,
+        market_col="market",
+        market_type_col="market_type",
+        p_up_col="p_up",
+        q10_col="q10_change_pct",
+        q50_col="q50_change_pct",
+        q90_col="q90_change_pct",
+        volatility_col="volatility_score",
+        confidence_col="confidence_score",
+        current_price_col="current_price",
+        risk_level_col="risk_level",
+    )
+
+    # Non-trading sessions should not output synthetic probabilities for index session page.
+    inactive_mask = hourly["is_trading_hour"] != 1
+    for c in ["p_up", "p_down", "volatility_score", "confidence_score"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = np.nan
+    for c in ["q10_change_pct", "q50_change_pct", "q90_change_pct"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = np.nan
+    for c in ["target_price_q10", "target_price_q50", "target_price_q90"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = np.nan
+    for c in ["trend_label", "risk_level"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = "-"
+
+    generated_bj = now_bj.strftime("%Y-%m-%d %H:%M:%S%z")
+    data_updated_bj = hourly_hist["timestamp_utc"].max().tz_convert("Asia/Shanghai").strftime("%Y-%m-%d %H:%M:%S%z")
+    source_actual = f"ticker={ticker_source};hourly={hourly_source};daily={daily_source};profile={mode_requested}_index_profile"
+    for frame in [hourly, blocks, daily]:
+        frame["forecast_generated_at_bj"] = generated_bj
+        frame["data_updated_at_bj"] = data_updated_bj
+        frame["model_version"] = f"index_{mode_requested}_v1"
+        frame["data_source_actual"] = source_actual
+        frame["current_price"] = current_price
+
+    meta = {
+        "index_key": index_key,
+        "index_name_zh": inst["name_zh"],
+        "index_name_en": inst["name_en"],
+        "symbol": symbol,
+        "exchange": "yahoo",
+        "exchange_actual": "yahoo",
+        "market_type": "index",
+        "mode_requested": mode_requested,
+        "mode_actual": mode_requested,
+        "horizon_hours": int(horizon_hours),
+        "lookforward_days": int(lookforward_days),
+        "current_price": float(current_price),
+        "forecast_generated_at_bj": generated_bj,
+        "data_updated_at_bj": data_updated_bj,
+        "model_version": f"index_{mode_requested}_v1",
+        "data_source_actual": source_actual,
+        "timezone": timezone,
+        "active_session": active_session,
+    }
+    return hourly, blocks, daily, meta
 
 
 def _is_finite_number(x: object) -> bool:
@@ -1009,7 +1688,8 @@ def _render_hourly_heatmap(
     work = hourly_df.copy()
     work = work.sort_values("hour_bj")
     x = [f"{int(h):02d}:00" for h in work["hour_bj"].tolist()]
-    z_values = pd.to_numeric(work[value_col], errors="coerce").fillna(0.0).tolist()
+    # Keep NaN so non-trading hours can render as blank instead of fake low values.
+    z_values = pd.to_numeric(work[value_col], errors="coerce").tolist()
     fig = go.Figure(
         data=go.Heatmap(
             z=[z_values],
@@ -1033,6 +1713,864 @@ def _render_hourly_heatmap(
     st.plotly_chart(fig, use_container_width=True)
 
 
+def _fmt_pct_or_bps(value: object, *, signed: bool = True, bps_cutoff_pct: float = 0.01) -> str:
+    v = _safe_float(value)
+    if not np.isfinite(v):
+        return "-"
+    cutoff = float(max(0.0001, bps_cutoff_pct))
+    if abs(v) < cutoff:
+        bps = v * 10000.0
+        if signed:
+            return f"{bps:+.1f} bps"
+        return f"{abs(bps):.1f} bps"
+    if signed:
+        return _format_change_pct(v)
+    return f"{abs(v) * 100.0:.2f}%"
+
+
+def _html_escape(text: object) -> str:
+    s = str(text or "")
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _status_color(status: str) -> str:
+    key = str(status or "").upper()
+    if key == "READY":
+        return "#22c55e"
+    if key == "WAIT_ENTRY":
+        return "#38bdf8"
+    if key == "WAIT_RULES":
+        return "#f59e0b"
+    if key in {"BLOCKED", "EXPIRED"}:
+        return "#ef4444"
+    return "#94a3b8"
+
+
+def _action_color(action: str) -> str:
+    key = str(action or "").upper()
+    if key == "LONG":
+        return "#22c55e"
+    if key == "SHORT":
+        return "#ef4444"
+    if key == "WAIT":
+        return "#f59e0b"
+    return "#94a3b8"
+
+
+def _select_session_decision_row(
+    hourly_df: pd.DataFrame,
+    *,
+    current_hour_bj: int,
+    active_session: str = "",
+) -> pd.Series:
+    if hourly_df.empty:
+        return pd.Series(dtype=object)
+    work = hourly_df.copy()
+    if "hour_bj" not in work.columns:
+        return pd.Series(dtype=object)
+    work["hour_bj"] = pd.to_numeric(work["hour_bj"], errors="coerce")
+    work = work.dropna(subset=["hour_bj"]).copy()
+    if work.empty:
+        return pd.Series(dtype=object)
+    work["hour_bj"] = work["hour_bj"].astype(int) % 24
+    if "is_trading_hour" in work.columns:
+        trade_mask = pd.to_numeric(work["is_trading_hour"], errors="coerce").fillna(0).astype(int) == 1
+    elif active_session and "session_name" in work.columns:
+        trade_mask = work["session_name"].astype(str).str.lower().eq(str(active_session).lower())
+    else:
+        trade_mask = pd.Series(True, index=work.index)
+    work["_tradable"] = trade_mask.astype(int)
+    work["_p_finite"] = pd.to_numeric(work.get("p_up"), errors="coerce").notna().astype(int)
+    work["_delta"] = ((work["hour_bj"] - int(current_hour_bj)) % 24).astype(int)
+    cur = work[(work["hour_bj"] == int(current_hour_bj)) & (work["_tradable"] == 1) & (work["_p_finite"] == 1)]
+    if not cur.empty:
+        return cur.iloc[0]
+    cand = work[(work["_tradable"] == 1) & (work["_p_finite"] == 1)].copy()
+    if cand.empty:
+        cand = work[(work["_p_finite"] == 1)].copy()
+    if cand.empty:
+        cand = work.copy()
+    cand = cand.sort_values(["_delta", "_tradable"], ascending=[True, False])
+    return cand.iloc[0] if not cand.empty else pd.Series(dtype=object)
+
+
+def _prepare_session_trade_plan(
+    *,
+    hourly_df: pd.DataFrame,
+    blocks_df: pd.DataFrame,
+    meta: Dict[str, object],
+    horizon_hours: int,
+    market_mode: str,
+    active_session: str,
+    cfg: Dict[str, object],
+    model_health: str,
+    risk_profile: str,
+) -> Tuple[pd.Series, Dict[str, object]]:
+    now_bj = pd.Timestamp.now(tz="Asia/Shanghai")
+    row = _select_session_decision_row(
+        hourly_df,
+        current_hour_bj=int(now_bj.hour),
+        active_session=active_session,
+    )
+    if row.empty and not blocks_df.empty:
+        fallback = blocks_df.copy()
+        fallback["_strength"] = (pd.to_numeric(fallback.get("p_up"), errors="coerce") - 0.5).abs()
+        fallback = fallback.sort_values("_strength", ascending=False)
+        row = fallback.iloc[0]
+    if row.empty:
+        return pd.Series(dtype=object), {}
+
+    r = row.copy()
+    if "market" not in r.index:
+        if str(market_mode) == "crypto":
+            r["market"] = "crypto"
+        else:
+            r["market"] = str(meta.get("market", "us_equity"))
+    r["symbol"] = str(meta.get("symbol", r.get("symbol", "-")))
+    r["horizon_label"] = f"{int(horizon_hours)}h"
+    r["timezone"] = "Asia/Shanghai"
+    r["current_price"] = _safe_float(meta.get("current_price", r.get("current_price")))
+    r["price_source"] = str(meta.get("data_source_actual", r.get("price_source", "-")))
+    r["price_timestamp_market"] = str(meta.get("data_updated_at_bj", r.get("price_timestamp_market", "-")))
+    ts_bj = pd.to_datetime(r["price_timestamp_market"], errors="coerce")
+    if pd.notna(ts_bj):
+        if ts_bj.tzinfo is None:
+            ts_bj = ts_bj.tz_localize("Asia/Shanghai")
+        else:
+            ts_bj = ts_bj.tz_convert("Asia/Shanghai")
+        r["price_timestamp_utc"] = ts_bj.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+    else:
+        r["price_timestamp_utc"] = str(meta.get("price_timestamp_utc", "-"))
+    gen_bj = pd.to_datetime(meta.get("forecast_generated_at_bj"), errors="coerce")
+    if pd.notna(gen_bj):
+        if gen_bj.tzinfo is None:
+            gen_bj = gen_bj.tz_localize("Asia/Shanghai")
+        else:
+            gen_bj = gen_bj.tz_convert("Asia/Shanghai")
+        exp_bj = gen_bj + pd.Timedelta(hours=int(horizon_hours))
+        r["generated_at_utc"] = gen_bj.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+        r["expected_date_market"] = exp_bj.strftime("%Y-%m-%d %H:%M:%S %z")
+        r["expected_date_utc"] = exp_bj.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+    plan = _build_trade_decision_plan(
+        r,
+        cfg=cfg,
+        risk_profile=risk_profile,
+        model_health=model_health,
+        event_risk=bool(_safe_float(r.get("news_event_risk")) > 0.5),
+        persist_touch=True,
+        processed_dir=Path("data/processed"),
+    )
+    return r, plan
+
+
+def _session_consensus(
+    *,
+    main_row: pd.Series,
+    compare_blocks: pd.DataFrame,
+) -> Dict[str, object]:
+    if main_row.empty or compare_blocks.empty:
+        return {
+            "aligned": None,
+            "badge": _t("未启用对照", "Compare off"),
+            "detail": _t("未计算 Forecast vs Seasonality 分歧。", "Forecast vs Seasonality comparison not computed."),
+        }
+    session_name = str(main_row.get("session_name", "")).strip().lower()
+    cmp = compare_blocks.copy()
+    if "session_name" in cmp.columns and session_name:
+        cmp = cmp[cmp["session_name"].astype(str).str.lower() == session_name]
+    if cmp.empty:
+        return {
+            "aligned": None,
+            "badge": _t("无对照数据", "No compare data"),
+            "detail": _t("对应时段缺少对照数据。", "No compare data for current session."),
+        }
+    cmp_row = cmp.iloc[0]
+    p_main = _safe_float(main_row.get("p_up"))
+    p_cmp = _safe_float(cmp_row.get("p_up"))
+    q_main = _safe_float(main_row.get("q50_change_pct"))
+    q_cmp = _safe_float(cmp_row.get("q50_change_pct"))
+    dir_main = 1 if np.isfinite(p_main) and p_main >= 0.5 else -1
+    dir_cmp = 1 if np.isfinite(p_cmp) and p_cmp >= 0.5 else -1
+    aligned = dir_main == dir_cmp
+    delta_p = p_main - p_cmp if np.isfinite(p_main) and np.isfinite(p_cmp) else float("nan")
+    delta_q = q_main - q_cmp if np.isfinite(q_main) and np.isfinite(q_cmp) else float("nan")
+    if aligned:
+        return {
+            "aligned": True,
+            "badge": _t("✅ 同向（2/2）", "✅ Aligned (2/2)"),
+            "detail": _t(
+                f"Forecast 与 Seasonality 同向；Δp_up={_fmt_pct_or_bps(delta_p)}，Δq50={_fmt_pct_or_bps(delta_q)}。",
+                f"Forecast and Seasonality are aligned; Δp_up={_fmt_pct_or_bps(delta_p)}, Δq50={_fmt_pct_or_bps(delta_q)}.",
+            ),
+        }
+    return {
+        "aligned": False,
+        "badge": _t("⚠️ 分歧（1/2）", "⚠️ Conflict (1/2)"),
+        "detail": _t(
+            f"Forecast 与 Seasonality 方向冲突；Δp_up={_fmt_pct_or_bps(delta_p)}，Δq50={_fmt_pct_or_bps(delta_q)}。建议降仓。",
+            f"Forecast conflicts with Seasonality; Δp_up={_fmt_pct_or_bps(delta_p)}, Δq50={_fmt_pct_or_bps(delta_q)}. Consider smaller size.",
+        ),
+    }
+
+
+def _render_session_sticky_decision_card(
+    *,
+    plan: Dict[str, object],
+    consensus: Dict[str, object],
+    model_health_text: str,
+    data_updated_bj: str,
+    model_version: str,
+    threshold_text: str,
+) -> None:
+    if not plan:
+        return
+    action = str(plan.get("action", "WAIT"))
+    action_text = str(plan.get("action_cn", _t("观望", "Wait")))
+    status = str(plan.get("trade_status", "WAIT_RULES"))
+    status_text = str(plan.get("trade_status_text", status))
+    status_note = str(plan.get("trade_status_note", "-"))
+    entry = _safe_float(plan.get("entry"))
+    sl = _safe_float(plan.get("stop_loss"))
+    tp1 = _safe_float(plan.get("take_profit"))
+    tp2 = _safe_float(plan.get("take_profit_2"))
+    rr = _safe_float(plan.get("rr"))
+    edge_long = _safe_float(plan.get("edge_long"))
+    edge_short = _safe_float(plan.get("edge_short"))
+    side = str(plan.get("plan_side", "LONG")).upper()
+    edge_active = edge_long if side == "LONG" else edge_short
+    gap_pct = _safe_float(plan.get("entry_gap_pct"))
+    touched = bool(plan.get("entry_touched", False))
+    touched_at = str(plan.get("entry_touched_at", "")).strip()
+    entry_state = (
+        _t("已触发 ✅", "Touched ✅")
+        if touched
+        else _t(f"距离入场 { _fmt_pct_or_bps(gap_pct) }", f"Distance to entry { _fmt_pct_or_bps(gap_pct) }")
+    )
+    if touched and touched_at:
+        entry_state = _t(f"已触发 ✅（{touched_at}）", f"Touched ✅ ({touched_at})")
+
+    def _dist_text(level: float) -> str:
+        if not (np.isfinite(level) and np.isfinite(entry) and abs(entry) > 1e-12):
+            return "-"
+        dist = (level - entry) / entry
+        return f"{_format_price(level)} ({_fmt_pct_or_bps(abs(dist), signed=False)})"
+
+    action_color = _action_color(action)
+    status_color = _status_color(status)
+    consensus_badge = _html_escape(consensus.get("badge", "-"))
+    consensus_detail = _html_escape(consensus.get("detail", "-"))
+    html = f"""
+    <style>
+      .sf-sticky-card {{
+        position: sticky;
+        top: 0.35rem;
+        z-index: 980;
+        border: 1px solid rgba(148,163,184,.35);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin: 8px 0 12px 0;
+        background: rgba(2, 6, 23, .94);
+        backdrop-filter: blur(4px);
+      }}
+      .sf-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(180px, 1fr));
+        gap: 8px 16px;
+      }}
+      .sf-k {{ font-size: 12px; color: #94a3b8; }}
+      .sf-v {{ font-size: 22px; font-weight: 700; color: #e2e8f0; line-height: 1.2; }}
+      .sf-v-sm {{ font-size: 16px; font-weight: 700; color: #e2e8f0; line-height: 1.2; }}
+      .sf-top {{
+        display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 8px;
+      }}
+      .sf-note {{ font-size: 12px; color: #cbd5e1; margin-top: 4px; }}
+    </style>
+    <div class="sf-sticky-card">
+      <div class="sf-top">
+        <div>
+          <div class="sf-k">{_html_escape(_t("一眼决策卡（交易时段）", "Quick Decision Card (Session)"))}</div>
+          <div class="sf-v" style="color:{action_color}">{_html_escape(action)} / {_html_escape(action_text)}</div>
+          <div class="sf-note">{_html_escape(status_text)} · {_html_escape(status_note)}</div>
+          <div class="sf-note">{consensus_badge} · {consensus_detail}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="sf-k">{_html_escape(_t("模型健康/数据新鲜度", "Model Health / Freshness"))}</div>
+          <div class="sf-v-sm">{_html_escape(model_health_text)}</div>
+          <div class="sf-note">{_html_escape(_t("数据更新", "Data updated"))}: {_html_escape(data_updated_bj)}</div>
+          <div class="sf-note">model={_html_escape(model_version)}</div>
+          <div class="sf-note">{_html_escape(threshold_text)}</div>
+        </div>
+      </div>
+      <div class="sf-grid">
+        <div><div class="sf-k">{_html_escape(_t("执行状态", "Execution Status"))}</div><div class="sf-v-sm" style="color:{status_color}">{_html_escape(status_text)}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("入场价", "Entry"))}</div><div class="sf-v-sm">{_html_escape(_format_price(entry))}</div><div class="sf-note">{_html_escape(entry_state)}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("止损 SL", "Stop Loss"))}</div><div class="sf-v-sm">{_html_escape(_dist_text(sl))}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("止盈 TP1", "Take Profit TP1"))}</div><div class="sf-v-sm">{_html_escape(_dist_text(tp1))}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("止盈 TP2", "Take Profit TP2"))}</div><div class="sf-v-sm">{_html_escape(_dist_text(tp2))}</div></div>
+        <div><div class="sf-k">RR / {_html_escape(_t("净Edge", "Net Edge"))}</div><div class="sf-v-sm">{_html_escape(_format_float(rr, 2))} / {_html_escape(_fmt_pct_or_bps(edge_active))}</div></div>
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _render_session_trade_plan_block(
+    *,
+    plan: Dict[str, object],
+    p_bull: float,
+    p_bear: float,
+    conf_min: float,
+) -> None:
+    if not plan:
+        return
+    st.markdown(f"### {_t('Trade Plan（净收益口径）', 'Trade Plan (Net Basis)')}")
+    entry = _safe_float(plan.get("entry"))
+    sl = _safe_float(plan.get("stop_loss"))
+    q50 = _safe_float(plan.get("q50"))
+    side = str(plan.get("plan_side", "LONG")).upper()
+    q50_signed = q50 if side == "LONG" else -q50
+    edge_after_cost = _safe_float(plan.get("edge_long") if side == "LONG" else plan.get("edge_short"))
+    risk_pct = float("nan")
+    if np.isfinite(entry) and np.isfinite(sl) and abs(entry) > 1e-12:
+        risk_pct = abs((entry - sl) / entry)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(_t("预期收益(q50)", "Expected Return (q50)"), _fmt_pct_or_bps(q50_signed))
+    c2.metric(_t("风险（到SL）", "Risk (to SL)"), _fmt_pct_or_bps(risk_pct, signed=False))
+    c3.metric("RR", _format_float(plan.get("rr"), 2))
+    c4.metric(_t("扣成本后净Edge", "Net Edge After Cost"), _fmt_pct_or_bps(edge_after_cost))
+    st.caption(
+        _t(
+            f"执行阈值：Long需 p_up>={p_bull:.2f}；Short需 p_up<={p_bear:.2f}；confidence>={conf_min:.1f}；且 edge_net>0。",
+            f"Execution thresholds: Long p_up>={p_bull:.2f}; Short p_up<={p_bear:.2f}; confidence>={conf_min:.1f}; and edge_net>0.",
+        )
+    )
+    st.caption(_t("说明：到价 ≠ 开仓；到价只是触发条件之一，规则未通过仍会观望。", "Note: entry touch != execution; entry is only one condition and rules must pass."))
+
+
+def _render_simulated_kline_panel(
+    *,
+    panel_key: str,
+    step_profile: pd.DataFrame,
+    daily_profile: pd.DataFrame | None = None,
+    current_price: float,
+    market_mode: str,
+    symbol_or_index: str,
+    reference_ts_bj: str,
+    active_session: str = "",
+    trade_plan: Dict[str, object] | None = None,
+) -> None:
+    st.markdown("---")
+    st.subheader(_t("模拟K线（未来路径）", "Simulated K-line (Future Paths)"))
+    st.caption(
+        _t(
+            "基于当前 p_up / q10 / q50 / q90 概率输出生成未来路径模拟，不代表真实未来价格，仅用于风险评估。",
+            "Future path simulation based on current p_up / q10 / q50 / q90 outputs; not exact future price.",
+        )
+    )
+
+    cp = _safe_float(current_price)
+    if not np.isfinite(cp) or cp <= 0:
+        st.info(_t("当前价格不可用，无法生成模拟K线。", "Current price unavailable; cannot run simulation."))
+        return
+
+    if step_profile.empty:
+        st.info(_t("时段步进数据为空，无法生成模拟K线。", "Step profile is empty; cannot run simulation."))
+        return
+
+    daily_ok = isinstance(daily_profile, pd.DataFrame) and (not daily_profile.empty)
+    daily_len = int(len(daily_profile)) if daily_ok else 0
+    daily_max_steps = int(max(1, min(30, daily_len))) if daily_ok else 0
+    daily_default_steps = int(min(14, daily_max_steps)) if daily_ok else 0
+
+    with st.expander(_t("模拟参数", "Simulation Parameters"), expanded=False):
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        n_steps = int(
+            c1.selectbox(
+                _t("日内步数", "Intraday Steps"),
+                options=[12, 24, 36, 48],
+                index=1,
+                key=f"{panel_key}_sim_steps",
+            )
+        )
+        if daily_ok:
+            daily_steps = int(
+                c2.slider(
+                    _t("日线步数", "Daily Steps"),
+                    min_value=1 if daily_max_steps < 3 else 3,
+                    max_value=daily_max_steps,
+                    value=daily_default_steps if daily_default_steps > 0 else daily_max_steps,
+                    step=1,
+                    key=f"{panel_key}_sim_daily_steps",
+                )
+            )
+        else:
+            daily_steps = 0
+            c2.caption(_t("无日线数据", "No daily data"))
+        n_paths = int(
+            c3.selectbox(
+                _t("路径数", "Paths"),
+                options=[100, 300, 500, 800],
+                index=1,
+                key=f"{panel_key}_sim_paths",
+            )
+        )
+        seed = int(c4.number_input(_t("随机种子", "Seed"), min_value=1, max_value=999999, value=42, step=1, key=f"{panel_key}_sim_seed"))
+        agg = str(
+            c5.selectbox(
+                _t("聚合方式", "Aggregation"),
+                options=["mean", "median"],
+                index=0,
+                key=f"{panel_key}_sim_agg",
+            )
+        )
+        kline_view = str(
+            c6.selectbox(
+                _t("K线呈现", "Candle Style"),
+                options=["representative", "mean"],
+                index=0,
+                format_func=lambda x: _t("代表路径(推荐)", "Representative (Recommended)") if x == "representative" else _t("均值路径", "Mean Path"),
+                key=f"{panel_key}_sim_kline_view",
+            )
+        )
+        vol_scale = float(
+            c1.slider(
+                _t("波动缩放", "Vol scale"),
+                min_value=0.50,
+                max_value=2.00,
+                value=1.00,
+                step=0.05,
+                key=f"{panel_key}_sim_vol_scale",
+            )
+        )
+
+        d1, d2, d3, d4, d5, d6 = st.columns(6)
+        sigma_floor = float(
+            d1.number_input(
+                "sigma_floor",
+                min_value=0.0001,
+                max_value=0.01,
+                value=0.0003,
+                step=0.0001,
+                format="%.4f",
+                key=f"{panel_key}_sim_sigma_floor",
+            )
+        )
+        sigma_cap = float(
+            d2.number_input(
+                "sigma_cap",
+                min_value=0.005,
+                max_value=0.20,
+                value=0.03,
+                step=0.005,
+                format="%.3f",
+                key=f"{panel_key}_sim_sigma_cap",
+            )
+        )
+        wick_cap = float(
+            d3.number_input(
+                "wick_cap",
+                min_value=0.002,
+                max_value=0.10,
+                value=0.015,
+                step=0.001,
+                format="%.3f",
+                key=f"{panel_key}_sim_wick_cap",
+            )
+        )
+        wick_scale = float(
+            d4.number_input(
+                "wick_scale",
+                min_value=0.1,
+                max_value=2.0,
+                value=0.6,
+                step=0.1,
+                format="%.1f",
+                key=f"{panel_key}_sim_wick_scale",
+            )
+        )
+        max_ops = int(
+            d5.number_input(
+                "max_ops",
+                min_value=5000,
+                max_value=500000,
+                value=50000,
+                step=5000,
+                key=f"{panel_key}_sim_max_ops",
+            )
+        )
+        show_hist = bool(
+            d6.checkbox(_t("显示终点分布", "Show terminal histogram"), value=False, key=f"{panel_key}_sim_show_hist")
+        )
+
+    def _render_sim_content(
+        *,
+        section_key: str,
+        section_title: str,
+        sim_df_mean: pd.DataFrame,
+        sim_df_rep: pd.DataFrame,
+        sim_summary: Dict[str, object],
+        sim_diag: Dict[str, object],
+        terminal_df: pd.DataFrame,
+        paths_close: np.ndarray,
+        steps_used: int,
+        source_df: pd.DataFrame,
+    ) -> None:
+        if sim_df_mean.empty:
+            st.info(_t(f"{section_title} 结果为空。", f"{section_title} is empty."))
+            return
+
+        sim_df_show = sim_df_rep if (kline_view == "representative" and not sim_df_rep.empty) else sim_df_mean
+        sim_summary_show = (
+            build_simulation_summary(sim_df_show, current_price=cp)
+            if sim_df_show is not sim_df_mean
+            else dict(sim_summary)
+        )
+
+        st.markdown(f"### {section_title}")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric(_t("终点价格", "End Price"), _format_price(sim_summary_show.get("end_price")))
+        m2.metric(_t("累计收益", "Cumulative Return"), _format_change_pct(sim_summary_show.get("end_ret_pct")))
+        m3.metric(_t("最大上冲", "Max Up from Start"), _format_change_pct(sim_summary_show.get("max_up_from_start")))
+        m4.metric(_t("最大回撤", "Max Drawdown from Start"), _format_change_pct(sim_summary_show.get("max_dd_from_start")))
+        m5.metric(_t("平均带宽(%)", "Average Band Width (%)"), _format_change_pct(sim_summary_show.get("avg_band_width_pct")))
+
+        if isinstance(trade_plan, dict):
+            entry = _safe_float(trade_plan.get("entry"))
+            tp = _safe_float(trade_plan.get("take_profit"))
+            sl = _safe_float(trade_plan.get("stop_loss"))
+            side = "short" if str(trade_plan.get("plan_side", "LONG")).upper() == "SHORT" else "long"
+            if (
+                np.isfinite(entry)
+                and np.isfinite(tp)
+                and np.isfinite(sl)
+                and isinstance(paths_close, np.ndarray)
+                and paths_close.ndim == 2
+                and paths_close.size > 0
+            ):
+                try:
+                    hit_stats = estimate_tp_sl_hit_prob(
+                        paths_close,
+                        entry=float(entry),
+                        tp=float(tp),
+                        sl=float(sl),
+                        side=side,
+                    )
+                except TypeError:
+                    if side == "short":
+                        hit_stats = estimate_tp_sl_hit_prob(
+                            -paths_close,
+                            entry=float(-entry),
+                            tp=float(-tp),
+                            sl=float(-sl),
+                        )
+                    else:
+                        hit_stats = estimate_tp_sl_hit_prob(
+                            paths_close,
+                            entry=float(entry),
+                            tp=float(tp),
+                            sl=float(sl),
+                        )
+                h1, h2, h3, h4, h5, h6 = st.columns(6)
+                h1.metric(_t("TP先触发概率", "TP-first Prob"), _format_change_pct(hit_stats.get("p_hit_tp_first")).replace("+", ""))
+                h2.metric(_t("SL先触发概率", "SL-first Prob"), _format_change_pct(hit_stats.get("p_hit_sl_first")).replace("+", ""))
+                h3.metric(_t("两者均未触发", "No-hit Prob"), _format_change_pct(hit_stats.get("p_no_hit")).replace("+", ""))
+                h4.metric(_t("TP触发中位步数", "TP Median Step"), f"{int(_safe_float(hit_stats.get('tp_hit_step_median')))}" if np.isfinite(_safe_float(hit_stats.get("tp_hit_step_median"))) else "-")
+                h5.metric(_t("SL触发中位步数", "SL Median Step"), f"{int(_safe_float(hit_stats.get('sl_hit_step_median')))}" if np.isfinite(_safe_float(hit_stats.get("sl_hit_step_median"))) else "-")
+                h6.metric(
+                    _t("触发速度区间", "Hit Step Range"),
+                    _t(
+                        f"TP[{int(_safe_float(hit_stats.get('tp_hit_step_fastest')))}-{int(_safe_float(hit_stats.get('tp_hit_step_slowest')))}] / SL[{int(_safe_float(hit_stats.get('sl_hit_step_fastest')))}-{int(_safe_float(hit_stats.get('sl_hit_step_slowest')))}]",
+                        f"TP[{int(_safe_float(hit_stats.get('tp_hit_step_fastest')))}-{int(_safe_float(hit_stats.get('tp_hit_step_slowest')))}] / SL[{int(_safe_float(hit_stats.get('sl_hit_step_fastest')))}-{int(_safe_float(hit_stats.get('sl_hit_step_slowest')))}]",
+                    )
+                    if (
+                        np.isfinite(_safe_float(hit_stats.get("tp_hit_step_fastest")))
+                        and np.isfinite(_safe_float(hit_stats.get("tp_hit_step_slowest")))
+                        and np.isfinite(_safe_float(hit_stats.get("sl_hit_step_fastest")))
+                        and np.isfinite(_safe_float(hit_stats.get("sl_hit_step_slowest")))
+                    )
+                    else "-",
+                )
+
+        if bool(sim_diag.get("degrade_flag", False)):
+            st.warning(
+                _t(
+                    f"计算已自动降级（reason={sim_diag.get('degrade_reason', '-')}, paths={sim_diag.get('n_paths_used')}/{sim_diag.get('n_paths_requested')})。",
+                    f"Simulation auto-degraded (reason={sim_diag.get('degrade_reason', '-')}, paths={sim_diag.get('n_paths_used')}/{sim_diag.get('n_paths_requested')}).",
+                )
+            )
+        if bool(sim_diag.get("distribution_fit_warn", False)):
+            st.warning(
+                _t(
+                    "分布拟合偏差偏高：模拟分布与输入 p_up/q分位存在偏差，请谨慎解读。",
+                    "Distribution fit warning: simulated distribution deviates from input p_up/q-quantiles.",
+                )
+            )
+
+        x_vals = pd.to_datetime(sim_df_show["ts_market"], errors="coerce")
+        fig = go.Figure()
+        fig.add_trace(
+            go.Candlestick(
+                x=x_vals,
+                open=sim_df_show["open"],
+                high=sim_df_show["high"],
+                low=sim_df_show["low"],
+                close=sim_df_show["close"],
+                name=_t("模拟K线", "Simulated Candles"),
+                increasing_line_color="#22c55e",
+                decreasing_line_color="#ef4444",
+                showlegend=False,
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=sim_df_show["close_q90"],
+                mode="lines",
+                line=dict(color="#636EFA", width=1),
+                name="close q90",
+                hovertemplate="%{y:.2f}<extra>q90</extra>",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=sim_df_show["close_q10"],
+                mode="lines",
+                line=dict(color="#636EFA", width=1),
+                fill="tonexty",
+                fillcolor="rgba(99,110,250,0.15)",
+                name="close q10-q90",
+                hovertemplate="%{y:.2f}<extra>q10</extra>",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=sim_df_show["close"],
+                mode="lines",
+                line=dict(color="#14b8a6", width=2),
+                name=_t("路径收盘线", "Path Close Line"),
+                hovertemplate="%{y:.2f}<extra>close</extra>",
+            )
+        )
+        fig.add_hline(
+            y=cp,
+            line_dash="dot",
+            line_color="#94a3b8",
+            annotation_text=_t("起点价", "Start Price"),
+            annotation_position="top left",
+        )
+        view_name = _t("代表路径", "Representative") if (kline_view == "representative" and not sim_df_rep.empty) else _t("均值路径", "Mean Path")
+        fig.update_layout(
+            title=_t(
+                f"{symbol_or_index} {section_title}（{view_name}, {agg}, steps={steps_used}, paths={sim_diag.get('n_paths_used', n_paths)}）",
+                f"{symbol_or_index} {section_title} ({view_name}, {agg}, steps={steps_used}, paths={sim_diag.get('n_paths_used', n_paths)})",
+            ),
+            xaxis_title=_t("时间", "Time"),
+            yaxis_title=_t("价格", "Price"),
+            template="plotly_white",
+            height=460,
+            margin=dict(l=20, r=20, t=60, b=30),
+            xaxis_rangeslider_visible=False,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        if show_hist and not terminal_df.empty and "terminal_price" in terminal_df.columns:
+            hist = go.Figure()
+            hist.add_trace(
+                go.Histogram(
+                    x=pd.to_numeric(terminal_df["terminal_price"], errors="coerce").dropna(),
+                    nbinsx=30,
+                    marker_color="#636EFA",
+                    opacity=0.8,
+                    name="P(T)",
+                )
+            )
+            hist.update_layout(
+                title=_t("终点价格分布", "Terminal Price Distribution"),
+                xaxis_title=_t("终点价格", "Terminal Price"),
+                yaxis_title=_t("频次", "Count"),
+                template="plotly_white",
+                height=280,
+                margin=dict(l=20, r=20, t=50, b=20),
+            )
+            st.plotly_chart(hist, use_container_width=True)
+
+        show_df = sim_df_show.copy()
+        show_df["ts_market"] = pd.to_datetime(show_df.get("ts_market"), errors="coerce").dt.strftime("%Y-%m-%d %H:%M %z")
+        if "ts_utc" in show_df.columns:
+            show_df["ts_utc"] = pd.to_datetime(show_df["ts_utc"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M %Z")
+        cols = [
+            "step_idx",
+            "ts_market",
+            "date_bj",
+            "day_of_week",
+            "hour_bj",
+            "open",
+            "high",
+            "low",
+            "close",
+            "close_q10",
+            "close_q90",
+            "mean_step_ret",
+            "cum_ret_from_start",
+            "session_name",
+        ]
+        cols = [c for c in cols if c in show_df.columns]
+        st.dataframe(
+            show_df[cols].style.format(
+                {
+                    "open": "${:,.2f}",
+                    "high": "${:,.2f}",
+                    "low": "${:,.2f}",
+                    "close": "${:,.2f}",
+                    "close_q10": "${:,.2f}",
+                    "close_q90": "${:,.2f}",
+                    "mean_step_ret": "{:+.2%}",
+                    "cum_ret_from_start": "{:+.2%}",
+                },
+                na_rep="-",
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        c1, c2 = st.columns([1, 3])
+        if c1.button(_t("记录模拟快照", "Save simulation snapshot"), key=f"{section_key}_sim_audit_btn"):
+            payload_seed = {
+                "market_mode": market_mode,
+                "symbol_or_index": symbol_or_index,
+                "active_session": active_session,
+                "granularity": section_title,
+                "kline_view": kline_view,
+                "seed": seed,
+                "n_steps": steps_used,
+                "n_paths": n_paths,
+                "n_paths_used": int(sim_diag.get("n_paths_used", n_paths)),
+                "agg": agg,
+                "vol_scale": vol_scale,
+                "sigma_floor": sigma_floor,
+                "sigma_cap": sigma_cap,
+                "wick_cap": wick_cap,
+                "wick_scale": wick_scale,
+                "max_ops": max_ops,
+                "fit_error_p_up_max": _safe_float(sim_diag.get("fit_error_p_up_max")),
+                "fit_error_q10_max": _safe_float(sim_diag.get("fit_error_q10_max")),
+                "fit_error_q50_max": _safe_float(sim_diag.get("fit_error_q50_max")),
+                "fit_error_q90_max": _safe_float(sim_diag.get("fit_error_q90_max")),
+                "distribution_fit_warn": bool(sim_diag.get("distribution_fit_warn", False)),
+                "degrade_flag": bool(sim_diag.get("degrade_flag", False)),
+                "degrade_reason": str(sim_diag.get("degrade_reason", "")),
+                "end_price": _safe_float(sim_summary_show.get("end_price")),
+                "end_ret_pct": _safe_float(sim_summary_show.get("end_ret_pct")),
+                "max_up_from_start": _safe_float(sim_summary_show.get("max_up_from_start")),
+                "max_dd_from_start": _safe_float(sim_summary_show.get("max_dd_from_start")),
+                "avg_band_width_pct": _safe_float(sim_summary_show.get("avg_band_width_pct")),
+                "git_hash": _get_git_hash_short_cached(),
+            }
+            data_hash = hashlib.sha1(
+                source_df[[c for c in ["hour_bj", "date_bj", "p_up", "q10_change_pct", "q50_change_pct", "q90_change_pct", "is_trading_hour"] if c in source_df.columns]]
+                .to_json(orient="records", date_format="iso")
+                .encode("utf-8")
+            ).hexdigest()[:12]
+            config_hash = hashlib.sha1(json.dumps(payload_seed, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+            payload_seed.update(
+                {
+                    "timestamp_utc": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    "data_hash": data_hash,
+                    "config_hash": config_hash,
+                    "reference_ts_bj": reference_ts_bj,
+                }
+            )
+            _append_jsonl_dashboard(Path("data/processed/session_simulation_audit_log.jsonl"), payload_seed)
+            st.success(_t("模拟快照已写入 data/processed/session_simulation_audit_log.jsonl", "Simulation snapshot saved to data/processed/session_simulation_audit_log.jsonl"))
+        c2.caption(
+            _t(
+                f"拟合误差: p_up={_format_float(sim_diag.get('fit_error_p_up_max'), 4)}, q10={_format_float(sim_diag.get('fit_error_q10_max'), 4)}, q50={_format_float(sim_diag.get('fit_error_q50_max'), 4)}, q90={_format_float(sim_diag.get('fit_error_q90_max'), 4)}",
+                f"Fit error: p_up={_format_float(sim_diag.get('fit_error_p_up_max'), 4)}, q10={_format_float(sim_diag.get('fit_error_q10_max'), 4)}, q50={_format_float(sim_diag.get('fit_error_q50_max'), 4)}, q90={_format_float(sim_diag.get('fit_error_q90_max'), 4)}",
+            )
+        )
+
+    try:
+        sim_df_mean, sim_df_rep, sim_summary, sim_diag, terminal_df, paths_close = _build_simulated_kline_cached(
+            step_profile=step_profile,
+            current_price=cp,
+            market_mode=str(market_mode),
+            active_session=str(active_session or ""),
+            reference_ts_bj=str(reference_ts_bj or ""),
+            n_steps=n_steps,
+            n_paths=n_paths,
+            seed=seed,
+            agg=agg,
+            vol_scale=vol_scale,
+            sigma_floor=sigma_floor,
+            sigma_cap=sigma_cap,
+            wick_cap=wick_cap,
+            wick_scale=wick_scale,
+            max_ops=max_ops,
+            fit_tol_p=0.005,
+            fit_tol_q50=0.001,
+            fit_tol_qband=0.0015,
+            schema_version="session_sim_kline_v3",
+        )
+    except Exception as exc:
+        st.warning(_t(f"模拟K线构建失败：{exc}", f"Failed to build simulated K-line: {exc}"))
+        return
+
+    _render_sim_content(
+        section_key=f"{panel_key}_intraday",
+        section_title=_t("日内模拟K线", "Intraday Simulated K-line"),
+        sim_df_mean=sim_df_mean,
+        sim_df_rep=sim_df_rep,
+        sim_summary=sim_summary,
+        sim_diag=sim_diag,
+        terminal_df=terminal_df,
+        paths_close=paths_close,
+        steps_used=int(n_steps),
+        source_df=step_profile,
+    )
+
+    st.markdown("---")
+    if not daily_ok:
+        st.info(_t("暂无日线预测数据，无法生成日线模拟K线。", "No daily forecast data; daily simulation skipped."))
+        return
+
+    try:
+        sim_d_mean, sim_d_rep, sim_d_summary, sim_d_diag, terminal_d_df, d_paths_close = _build_daily_simulated_kline_cached(
+            daily_profile=daily_profile,
+            current_price=cp,
+            reference_ts_bj=str(reference_ts_bj or ""),
+            n_steps=int(daily_steps),
+            n_paths=n_paths,
+            seed=seed,
+            agg=agg,
+            vol_scale=vol_scale,
+            sigma_floor=sigma_floor,
+            sigma_cap=sigma_cap,
+            wick_cap=wick_cap,
+            wick_scale=wick_scale,
+            max_ops=max_ops,
+            fit_tol_p=0.005,
+            fit_tol_q50=0.001,
+            fit_tol_qband=0.0015,
+            schema_version="session_sim_kline_daily_v2",
+        )
+    except Exception as exc:
+        st.warning(_t(f"日线模拟K线构建失败：{exc}", f"Failed to build daily simulated K-line: {exc}"))
+        return
+
+    _render_sim_content(
+        section_key=f"{panel_key}_daily",
+        section_title=_t("日线模拟K线（未来N天）", "Daily Simulated K-line (Next N days)"),
+        sim_df_mean=sim_d_mean,
+        sim_df_rep=sim_d_rep,
+        sim_summary=sim_d_summary,
+        sim_diag=sim_d_diag,
+        terminal_df=terminal_d_df,
+        paths_close=d_paths_close,
+        steps_used=int(daily_steps),
+        source_df=daily_profile,
+    )
 def _render_top_tables(
     hourly_df: pd.DataFrame,
     daily_df: pd.DataFrame,
@@ -1320,9 +2858,22 @@ def _render_crypto_session_page() -> None:
         f5.selectbox(_t("小时周期", "Horizon (hour)"), options=[4], index=0 if default_horizon == 4 else 0, key="session_horizon")
     )
 
-    c1, c2 = st.columns([1, 3])
+    c1, c2, c3 = st.columns([1, 2, 1.2])
     lookforward_days = int(c1.slider(_t("未来N天（日线）", "Next N Days (daily)"), 7, 30, default_days, 1, key="session_daily_n"))
     compare_view = bool(c2.checkbox(_t("对照视图：Forecast vs Seasonality", "Compare View: Forecast vs Seasonality"), value=False, key="session_compare_view"))
+    view_mode = c3.selectbox(
+        _t("视图模式", "View Mode"),
+        options=[_t("专业模式", "Pro"), _t("新手模式", "Beginner")],
+        index=0,
+        key="session_view_mode",
+    )
+    is_pro_mode = str(view_mode) == _t("专业模式", "Pro")
+    risk_profile = c3.selectbox(
+        _t("风险偏好", "Risk Profile"),
+        options=[_t("标准", "Standard"), _t("保守", "Conservative"), _t("激进", "Aggressive")],
+        index=0,
+        key="session_risk_profile",
+    )
     if c2.button(_t("刷新并重算", "Refresh and Recompute"), key="session_refresh_btn"):
         st.session_state["session_refresh_token"] += 1
 
@@ -1380,6 +2931,84 @@ def _render_crypto_session_page() -> None:
             )
         )
         st.caption(f"Data Source Detail: {meta.get('data_source_actual', '-')}")
+
+    policy_cfg = (cfg.get("policy", {}) if isinstance(cfg, dict) else {})
+    th_cfg = policy_cfg.get("thresholds", {})
+    ex_cfg = policy_cfg.get("execution", {})
+    decision_cfg = (cfg.get("decision", {}) if isinstance(cfg, dict) else {})
+    p_bull = float(th_cfg.get("p_bull", 0.55))
+    p_bear = float(th_cfg.get("p_bear", 0.45))
+    conf_min = float(decision_cfg.get("confidence_min", 60.0))
+    cost_bps_plan = float(ex_cfg.get("fee_bps", 10.0)) + float(ex_cfg.get("slippage_bps", 10.0))
+    threshold_text = _t(
+        f"阈值 p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+        f"Thresholds p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+    )
+
+    compare_mode = "seasonality" if mode == "forecast" else "forecast"
+    cmp_hourly = pd.DataFrame()
+    cmp_blocks = pd.DataFrame()
+    cmp_meta: Dict[str, object] = {}
+    try:
+        cmp_hourly, cmp_blocks, _, cmp_meta = _build_session_bundle_cached(
+            symbol=symbol,
+            exchange=exchange,
+            market_type=market_type,
+            mode=compare_mode,
+            horizon_hours=horizon_hours,
+            lookforward_days=lookforward_days,
+            refresh_token=int(st.session_state["session_refresh_token"]),
+        )
+    except Exception:
+        cmp_hourly = pd.DataFrame()
+        cmp_blocks = pd.DataFrame()
+        cmp_meta = {}
+
+    rel_summary, _, rel_msg = _compute_recent_symbol_reliability_cached(
+        market="crypto",
+        symbol=str(meta.get("symbol", symbol)),
+        provider=str(meta.get("exchange_actual", exchange)) if str(meta.get("exchange_actual", exchange)) in {"binance", "coingecko"} else "binance",
+        fallback_symbol=str(meta.get("symbol", symbol)),
+        horizon_steps=1,
+        window_days=30,
+    )
+    model_health_level = _model_health_grade(rel_summary)
+    model_health_text = _t("模型健康", "Model Health") + f": {_model_health_text(model_health_level)}"
+    if rel_summary:
+        model_health_text = _t(
+            f"{_model_health_text(model_health_level)}（Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')}）",
+            f"{_model_health_text(model_health_level)} (Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')})",
+        )
+
+    plan_row, trade_plan = _prepare_session_trade_plan(
+        hourly_df=hourly_df,
+        blocks_df=blocks_df,
+        meta={**meta, "market": "crypto"},
+        horizon_hours=int(horizon_hours),
+        market_mode="crypto",
+        active_session="all",
+        cfg=cfg,
+        model_health=model_health_level,
+        risk_profile=str(risk_profile),
+    )
+    consensus = _session_consensus(main_row=plan_row, compare_blocks=cmp_blocks)
+    if trade_plan:
+        _render_session_sticky_decision_card(
+            plan=trade_plan,
+            consensus=consensus,
+            model_health_text=model_health_text,
+            data_updated_bj=str(meta.get("data_updated_at_bj", "-")),
+            model_version=str(meta.get("model_version", "-")),
+            threshold_text=threshold_text,
+        )
+        _render_session_trade_plan_block(
+            plan=trade_plan,
+            p_bull=p_bull,
+            p_bear=p_bear,
+            conf_min=conf_min,
+        )
+    if rel_msg and is_pro_mode:
+        st.caption(rel_msg)
 
     # Session cards
     if blocks_df.empty:
@@ -1439,18 +3068,8 @@ def _render_crypto_session_page() -> None:
         )
     )
 
-    if compare_view:
-        compare_mode = "seasonality" if mode == "forecast" else "forecast"
+    if compare_view and is_pro_mode:
         try:
-            cmp_hourly, cmp_blocks, _, cmp_meta = _build_session_bundle_cached(
-                symbol=symbol,
-                exchange=exchange,
-                market_type=market_type,
-                mode=compare_mode,
-                horizon_hours=horizon_hours,
-                lookforward_days=lookforward_days,
-                refresh_token=int(st.session_state["session_refresh_token"]),
-            )
             st.markdown(f"### {_t('Forecast vs Seasonality 对照（同参数）', 'Forecast vs Seasonality (same params)')}")
             st.caption(
                 _t(
@@ -1512,6 +3131,22 @@ def _render_crypto_session_page() -> None:
         _render_hourly_heatmap(hourly_df, "volatility_score", tab_vol, horizon_hours=horizon_hours)
     with tab4:
         _render_hourly_heatmap(hourly_df, "confidence_score", tab_conf, horizon_hours=horizon_hours)
+
+    _render_simulated_kline_panel(
+        panel_key="crypto_session",
+        step_profile=hourly_df,
+        daily_profile=daily_df,
+        current_price=_safe_float(meta.get("current_price")),
+        market_mode="crypto",
+        symbol_or_index=str(meta.get("symbol", symbol)),
+        reference_ts_bj=str(meta.get("forecast_generated_at_bj", meta.get("data_updated_at_bj", ""))),
+        active_session="all",
+        trade_plan=trade_plan,
+    )
+
+    if not is_pro_mode:
+        st.info(_t("当前为新手模式：已保留决策卡与关键图表。切换到专业模式可查看完整日线表、TopN、可靠性面板。", "Beginner mode: key decision and charts are shown. Switch to Pro mode for full daily table, TopN, and reliability panel."))
+        return
 
     st.markdown("---")
     st.subheader(_t("未来N天日线预测", "Next N-day Daily Forecast"))
@@ -1733,6 +3368,579 @@ def _render_crypto_session_page() -> None:
                 "- Use `volatility` and `risk level` for risk.\n"
                 "- Use `edge_score / edge_risk` for risk-adjusted opportunity.\n"
                 "- Use `policy action / position size / expected net edge` for participation decision.\n"
+                "- `Forecast` and `Seasonality` are two views; divergence itself is informative.",
+            )
+        )
+
+
+def _index_session_option_label(index_key: str) -> str:
+    inst = INDEX_SESSION_UNIVERSE.get(str(index_key), {})
+    zh = str(inst.get("name_zh", index_key))
+    en = str(inst.get("name_en", index_key))
+    symbol = str(inst.get("symbol", ""))
+    if symbol:
+        return _t(f"{zh} ({symbol})", f"{en} ({symbol})")
+    return _t(zh, en)
+
+
+def _render_index_session_page() -> None:
+    st.header(_t("交易时间段预测（指数）", "Session Forecast (Indices)"))
+    st.caption(
+        _t(
+            "独立于 Crypto 的指数交易时段预测：支持上证指数、道琼斯、纳斯达克、标普500。",
+            "Index-only session forecast page (separate from Crypto): SSE, Dow Jones, NASDAQ, S&P 500.",
+        )
+    )
+
+    if "index_session_refresh_token" not in st.session_state:
+        st.session_state["index_session_refresh_token"] = 0
+
+    cfg = {}
+    try:
+        import yaml
+
+        cfg = yaml.safe_load(Path("configs/config.yaml").read_text(encoding="utf-8")) or {}
+    except Exception:
+        cfg = {}
+    fc = cfg.get("forecast_config", {})
+    strength_cfg = fc.get("signal_strength", {})
+    rank_cfg = fc.get("ranking", {})
+    default_horizon = int(fc.get("hourly", {}).get("horizon_hours", 4))
+    default_days = int(fc.get("daily", {}).get("lookforward_days", 14))
+    weak_pp = float(strength_cfg.get("weak_threshold_pp", 2.0))
+    strong_pp = float(strength_cfg.get("strong_threshold_pp", 5.0))
+    default_cost_bps = float(rank_cfg.get("cost_bps", 8.0))
+
+    index_keys = list(INDEX_SESSION_UNIVERSE.keys())
+    default_index_key = "sse" if "sse" in index_keys else (index_keys[0] if index_keys else "")
+
+    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
+    index_key = f1.selectbox(
+        _t("指数", "Index"),
+        options=index_keys,
+        index=index_keys.index(default_index_key) if default_index_key in index_keys else 0,
+        format_func=_index_session_option_label,
+        key="index_session_key",
+    )
+    mode = f2.selectbox(
+        _t("模式", "Mode"),
+        options=["forecast", "seasonality"],
+        index=0,
+        key="index_session_mode",
+    )
+    horizon_options = [1, 2, 4, 6]
+    default_h_idx = horizon_options.index(default_horizon) if default_horizon in horizon_options else 2
+    horizon_hours = int(
+        f3.selectbox(
+            _t("小时周期", "Horizon (hour)"),
+            options=horizon_options,
+            index=default_h_idx,
+            key="index_session_horizon",
+        )
+    )
+    lookforward_days = int(
+        f4.slider(
+            _t("未来N天（日线）", "Next N Days (daily)"),
+            7,
+            30,
+            max(7, min(30, default_days)),
+            1,
+            key="index_session_daily_n",
+        )
+    )
+
+    c1, c2, c3 = st.columns([1, 2, 1.2])
+    compare_view = bool(
+        c1.checkbox(
+            _t("对照视图", "Compare View"),
+            value=False,
+            key="index_session_compare_view",
+            help=_t("对照 Forecast 与 Seasonality。", "Compare Forecast vs Seasonality."),
+        )
+    )
+    view_mode = c3.selectbox(
+        _t("视图模式", "View Mode"),
+        options=[_t("专业模式", "Pro"), _t("新手模式", "Beginner")],
+        index=0,
+        key="index_session_view_mode",
+    )
+    is_pro_mode = str(view_mode) == _t("专业模式", "Pro")
+    risk_profile = c3.selectbox(
+        _t("风险偏好", "Risk Profile"),
+        options=[_t("标准", "Standard"), _t("保守", "Conservative"), _t("激进", "Aggressive")],
+        index=0,
+        key="index_session_risk_profile",
+    )
+    if c2.button(_t("刷新并重算", "Refresh and Recompute"), key="index_session_refresh_btn"):
+        st.session_state["index_session_refresh_token"] += 1
+
+    try:
+        hourly_df, blocks_df, daily_df, meta = _build_index_session_bundle_cached(
+            index_key=str(index_key),
+            mode=mode,
+            horizon_hours=int(horizon_hours),
+            lookforward_days=int(lookforward_days),
+            refresh_token=int(st.session_state["index_session_refresh_token"]),
+        )
+    except Exception as exc:
+        st.error(_t(f"指数时段预测计算失败：{exc}", f"Index session forecast failed: {exc}"))
+        return
+
+    mode_actual = str(meta.get("mode_actual", mode))
+    if mode_actual != mode:
+        st.warning(
+            _t(
+                f"请求模式是 `{mode}`，当前自动降级为 `{mode_actual}`。",
+                f"Requested mode `{mode}` downgraded to `{mode_actual}`.",
+            )
+        )
+
+    inst = INDEX_SESSION_UNIVERSE.get(str(index_key), {})
+    index_name = _t(str(inst.get("name_zh", "-")), str(inst.get("name_en", "-")))
+    active_session = str(meta.get("active_session", _index_active_session(str(index_key))))
+    active_session_label = _session_display_name(active_session)
+    st.caption(
+        _t(
+            f"指数：{index_name} | 最新价格：{_format_price(meta.get('current_price'))} | "
+            f"更新时间（北京时间）：{meta.get('data_updated_at_bj', '-')} | 模式/周期：{mode_actual} / {int(horizon_hours)}h | 有效交易时段：{active_session_label}",
+            f"Index: {index_name} | Latest Price: {_format_price(meta.get('current_price'))} | "
+            f"Updated (Asia/Shanghai): {meta.get('data_updated_at_bj', '-')} | Mode/Horizon: {mode_actual} / {int(horizon_hours)}h | Active session: {active_session_label}",
+        )
+    )
+
+    data_version_seed = (
+        f"{meta.get('index_key', '-')}"
+        f"|{meta.get('symbol', '-')}"
+        f"|{meta.get('data_updated_at_bj', '-')}"
+        f"|{meta.get('data_source_actual', '-')}"
+    )
+    data_version = hashlib.sha1(data_version_seed.encode("utf-8")).hexdigest()[:12]
+    with st.expander(_t("数据 & 模型信息", "Data & Model Info"), expanded=False):
+        st.markdown(
+            _t(
+                f"- 指数：{index_name} / {meta.get('symbol', '-')}\n"
+                f"- 数据源：{meta.get('exchange_actual', '-')}\n"
+                f"- 数据更新时间（北京时间）：{meta.get('data_updated_at_bj', '-')}\n"
+                f"- 预测生成时间（北京时间）：{meta.get('forecast_generated_at_bj', '-')}\n"
+                f"- horizon={int(horizon_hours)}h / mode={mode_actual}\n"
+                f"- 有效交易时段：{active_session_label}\n"
+                f"- model_version：{meta.get('model_version', '-')}\n"
+                f"- data_version：{data_version}\n"
+                f"- git_hash：{_get_git_hash_short_cached()}",
+                f"- Index: {index_name} / {meta.get('symbol', '-')}\n"
+                f"- Source: {meta.get('exchange_actual', '-')}\n"
+                f"- Data updated (Asia/Shanghai): {meta.get('data_updated_at_bj', '-')}\n"
+                f"- Forecast generated (Asia/Shanghai): {meta.get('forecast_generated_at_bj', '-')}\n"
+                f"- horizon={int(horizon_hours)}h / mode={mode_actual}\n"
+                f"- Active session: {active_session_label}\n"
+                f"- model_version: {meta.get('model_version', '-')}\n"
+                f"- data_version: {data_version}\n"
+                f"- git_hash: {_get_git_hash_short_cached()}",
+            )
+        )
+        st.caption(f"Data Source Detail: {meta.get('data_source_actual', '-')}")
+
+    policy_cfg = (cfg.get("policy", {}) if isinstance(cfg, dict) else {})
+    th_cfg = policy_cfg.get("thresholds", {})
+    ex_cfg = policy_cfg.get("execution", {})
+    decision_cfg = (cfg.get("decision", {}) if isinstance(cfg, dict) else {})
+    p_bull = float(th_cfg.get("p_bull", 0.55))
+    p_bear = float(th_cfg.get("p_bear", 0.45))
+    conf_min = float(decision_cfg.get("confidence_min", 60.0))
+    cost_bps_plan = float(ex_cfg.get("fee_bps", 10.0)) + float(ex_cfg.get("slippage_bps", 10.0))
+    threshold_text = _t(
+        f"阈值 p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+        f"Thresholds p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+    )
+
+    compare_mode = "seasonality" if mode == "forecast" else "forecast"
+    cmp_blocks = pd.DataFrame()
+    cmp_meta: Dict[str, object] = {}
+    try:
+        _, cmp_blocks, _, cmp_meta = _build_index_session_bundle_cached(
+            index_key=str(index_key),
+            mode=compare_mode,
+            horizon_hours=int(horizon_hours),
+            lookforward_days=int(lookforward_days),
+            refresh_token=int(st.session_state["index_session_refresh_token"]),
+        )
+    except Exception:
+        cmp_blocks = pd.DataFrame()
+        cmp_meta = {}
+
+    market_for_index = str(inst.get("market", "us_equity"))
+    rel_summary, _, rel_msg = _compute_recent_symbol_reliability_cached(
+        market=market_for_index,
+        symbol=str(meta.get("symbol", "-")),
+        provider="yahoo",
+        fallback_symbol="",
+        horizon_steps=1,
+        window_days=30,
+    )
+    model_health_level = _model_health_grade(rel_summary)
+    model_health_text = _t("模型健康", "Model Health") + f": {_model_health_text(model_health_level)}"
+    if rel_summary:
+        model_health_text = _t(
+            f"{_model_health_text(model_health_level)}（Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')}）",
+            f"{_model_health_text(model_health_level)} (Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')})",
+        )
+
+    plan_row, trade_plan = _prepare_session_trade_plan(
+        hourly_df=hourly_df,
+        blocks_df=blocks_df,
+        meta={**meta, "market": market_for_index},
+        horizon_hours=int(horizon_hours),
+        market_mode="index",
+        active_session=active_session,
+        cfg=cfg,
+        model_health=model_health_level,
+        risk_profile=str(risk_profile),
+    )
+    consensus = _session_consensus(main_row=plan_row, compare_blocks=cmp_blocks)
+    if trade_plan:
+        _render_session_sticky_decision_card(
+            plan=trade_plan,
+            consensus=consensus,
+            model_health_text=model_health_text,
+            data_updated_bj=str(meta.get("data_updated_at_bj", "-")),
+            model_version=str(meta.get("model_version", "-")),
+            threshold_text=threshold_text,
+        )
+        _render_session_trade_plan_block(
+            plan=trade_plan,
+            p_bull=p_bull,
+            p_bear=p_bear,
+            conf_min=conf_min,
+        )
+    if rel_msg and is_pro_mode:
+        st.caption(rel_msg)
+
+    if blocks_df.empty:
+        st.info(_t("暂无时段汇总数据。", "No session summary data available."))
+    else:
+        cards = _append_signal_strength_columns(blocks_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
+        cards["session_name_cn"] = cards.get("session_name_cn", cards["session_name"].map(_session_display_name))
+        cards = cards.sort_values(
+            "session_name", key=lambda s: s.map({"asia": 0, "europe": 1, "us": 2}).fillna(9)
+        )
+        cols = st.columns(3)
+        for idx, (_, row) in enumerate(cards.iterrows()):
+            col = cols[idx % 3]
+            with col:
+                st.markdown(f"**{row.get('session_name_cn', '-') }（{row.get('session_hours', '-') }）**")
+                st.metric(_t("上涨概率", "P(up)"), _format_change_pct(row.get("p_up")).replace("+", ""))
+                st.metric(_t("下跌概率", "P(down)"), _format_change_pct(row.get("p_down")).replace("+", ""))
+                st.metric(_t("预期涨跌幅(q50)", "Expected Change (q50)"), _format_change_pct(row.get("q50_change_pct")))
+                st.metric(_t("目标价格(q50)", "Target Price (q50)"), _format_price(row.get("target_price_q50")))
+                _render_signal_badge(row.get("signal_strength_label", "-"))
+                st.caption(
+                    _t("信号强弱：", "Signal strength: ")
+                    + _format_signal_strength(
+                        row.get("signal_strength_label", "-"),
+                        row.get("signal_strength_pp"),
+                        row.get("signal_strength_score"),
+                    )
+                )
+                st.caption(
+                    _t(
+                        f"趋势：{_trend_text(str(row.get('trend_label', '-')))} | "
+                        f"风险：{_risk_text(str(row.get('risk_level', '-')))} | "
+                        f"置信度：{_format_float(row.get('confidence_score'), 1)}",
+                        f"Trend: {_trend_text(str(row.get('trend_label', '-')))} | "
+                        f"Risk: {_risk_text(str(row.get('risk_level', '-')))} | "
+                        f"Confidence: {_format_float(row.get('confidence_score'), 1)}",
+                    )
+                )
+                if "policy_action" in row.index:
+                    st.caption(
+                        _t(
+                            f"策略：{_policy_action_text(str(row.get('policy_action', 'Flat')))} | "
+                            f"仓位：{(float(row.get('policy_position_size')) if _is_finite_number(row.get('policy_position_size')) else 0.0):.1%} | "
+                            f"净优势：{_format_change_pct(row.get('policy_expected_edge_pct'))}",
+                            f"Action: {_policy_action_text(str(row.get('policy_action', 'Flat')))} | "
+                            f"Size: {(float(row.get('policy_position_size')) if _is_finite_number(row.get('policy_position_size')) else 0.0):.1%} | "
+                            f"Net edge: {_format_change_pct(row.get('policy_expected_edge_pct'))}",
+                        )
+                    )
+
+    st.caption(
+        _t(
+            f"信号解释：`弱信号` (<{weak_pp:.1f}pp) 接近抛硬币，谨慎解读；"
+            f"`中信号` ({weak_pp:.1f}-{strong_pp:.1f}pp)；`强信号` (>{strong_pp:.1f}pp)。",
+            f"Signal guide: `Weak` (<{weak_pp:.1f}pp) is close to coin flip; "
+            f"`Medium` ({weak_pp:.1f}-{strong_pp:.1f}pp); `Strong` (>{strong_pp:.1f}pp).",
+        )
+    )
+    st.caption(
+        _t(
+            f"指数时段口径：当前仅对 `{active_session_label}` 输出可交易时段信号，其他时段展示为空白。",
+            f"Index session scope: only `{active_session_label}` is tradable for this index; other sessions are shown as blank.",
+        )
+    )
+
+    if compare_view and is_pro_mode:
+        try:
+            st.markdown(f"### {_t('Forecast vs Seasonality 对照（同参数）', 'Forecast vs Seasonality (same params)')}")
+            st.caption(
+                _t(
+                    f"当前模式：{mode_actual} | 对照模式：{cmp_meta.get('mode_actual', compare_mode)} | "
+                    "重点看 Δp_up（Forecast - Seasonality）。",
+                    f"Current mode: {mode_actual} | Compare mode: {cmp_meta.get('mode_actual', compare_mode)} | "
+                    "Focus on Δp_up (Forecast - Seasonality).",
+                )
+            )
+            if not blocks_df.empty and not cmp_blocks.empty:
+                left = blocks_df[["session_name", "session_name_cn", "p_up", "q50_change_pct"]].copy()
+                right = cmp_blocks[["session_name", "p_up", "q50_change_pct"]].copy()
+                merged = left.merge(right, on="session_name", how="inner", suffixes=("_main", "_cmp"))
+                merged["Δp_up"] = merged["p_up_main"] - merged["p_up_cmp"]
+                merged["Δq50"] = merged["q50_change_pct_main"] - merged["q50_change_pct_cmp"]
+                show = merged.rename(
+                    columns={
+                        "session_name_cn": "时段",
+                        "p_up_main": f"{mode_actual} p_up",
+                        "p_up_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
+                        "q50_change_pct_main": f"{mode_actual} q50",
+                        "q50_change_pct_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} q50",
+                    }
+                )
+                fmt = {
+                    c: "{:.2%}"
+                    for c in [
+                        f"{mode_actual} p_up",
+                        f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
+                        f"{mode_actual} q50",
+                        f"{cmp_meta.get('mode_actual', compare_mode)} q50",
+                        "Δp_up",
+                        "Δq50",
+                    ]
+                    if c in show.columns
+                }
+                styled_cmp = show.style.format(fmt, na_rep="-")
+                delta_cols = [c for c in ["Δp_up", "Δq50"] if c in show.columns]
+                if delta_cols:
+                    styled_cmp = styled_cmp.applymap(_style_signed_value, subset=delta_cols)
+                st.dataframe(styled_cmp, use_container_width=True, hide_index=True)
+            else:
+                st.info(_t("对照视图数据不足。", "Insufficient data for compare view."))
+        except Exception as exc:
+            st.warning(_t(f"对照视图构建失败：{exc}", f"Failed to build compare view: {exc}"))
+
+    st.markdown("---")
+    tab_up = _t("上涨概率", "P(up)")
+    tab_down = _t("下跌概率", "P(down)")
+    tab_vol = _t("波动强度", "Volatility")
+    tab_conf = _t("置信度", "Confidence")
+    tab1, tab2, tab3, tab4 = st.tabs([tab_up, tab_down, tab_vol, tab_conf])
+    with tab1:
+        _render_hourly_heatmap(hourly_df, "p_up", tab_up, horizon_hours=horizon_hours)
+    with tab2:
+        _render_hourly_heatmap(hourly_df, "p_down", tab_down, horizon_hours=horizon_hours)
+    with tab3:
+        _render_hourly_heatmap(hourly_df, "volatility_score", tab_vol, horizon_hours=horizon_hours)
+    with tab4:
+        _render_hourly_heatmap(hourly_df, "confidence_score", tab_conf, horizon_hours=horizon_hours)
+
+    _render_simulated_kline_panel(
+        panel_key="index_session",
+        step_profile=hourly_df,
+        daily_profile=daily_df,
+        current_price=_safe_float(meta.get("current_price")),
+        market_mode="index",
+        symbol_or_index=f"{index_name} ({meta.get('symbol', '-')})",
+        reference_ts_bj=str(meta.get("forecast_generated_at_bj", meta.get("data_updated_at_bj", ""))),
+        active_session=str(meta.get("active_session", active_session)),
+        trade_plan=trade_plan,
+    )
+
+    if not is_pro_mode:
+        st.info(_t("当前为新手模式：已保留决策卡与关键图表。切换到专业模式可查看完整日线表、TopN、可靠性面板。", "Beginner mode: key decision and charts are shown. Switch to Pro mode for full daily table, TopN, and reliability panel."))
+        return
+
+    st.markdown("---")
+    st.subheader(_t("未来N天日线预测", "Next N-day Daily Forecast"))
+    oneway_state = float(st.session_state.get("index_session_cost_bps_oneway", max(0.0, default_cost_bps / 2.0)))
+    default_side = _t("双边(开+平)", "Round-trip (open+close)")
+    cost_side_state = str(st.session_state.get("index_session_cost_side", default_side))
+    is_round_trip = cost_side_state.startswith("双边") or cost_side_state.startswith("Round-trip")
+    cost_bps_state = oneway_state * (2.0 if is_round_trip else 1.0)
+    if daily_df.empty:
+        st.info(_t("暂无日线预测数据。", "No daily forecast data."))
+    else:
+        d = _append_signal_strength_columns(daily_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
+        d = _append_edge_columns(d, cost_bps=cost_bps_state)
+        col_trend = _t("趋势", "Trend")
+        col_risk = _t("风险", "Risk")
+        col_strength = _t("信号强弱", "Signal Strength")
+        col_strength_score = _t("强度分(0-100)", "Strength(0-100)")
+        col_edge = _t("机会值(edge)", "Edge")
+        col_edge_risk = _t("风险调整机会", "Edge/Risk")
+        col_vol = _t("波动强度", "Volatility")
+        col_action = _t("策略动作", "Policy Action")
+        col_pos = _t("建议仓位", "Position Size")
+        col_net_edge = _t("预期净优势", "Expected Net Edge")
+        d[col_trend] = d["trend_label"].map(_trend_text)
+        d[col_risk] = d["risk_level"].map(_risk_text)
+        d[col_strength] = d["signal_strength_label"].map(_signal_strength_text)
+        d[col_strength_score] = d["signal_strength_score"]
+        d[col_edge] = d["edge_score"]
+        d[col_edge_risk] = d["edge_risk"]
+        d[col_vol] = pd.to_numeric(d.get("volatility_score"), errors="coerce")
+        if "policy_action" in d.columns:
+            d[col_action] = d["policy_action"].map(_policy_action_text)
+            d[col_pos] = d["policy_position_size"]
+            d[col_net_edge] = pd.to_numeric(d["policy_expected_edge_pct"], errors="coerce")
+
+        show_cols = [
+            "date_bj",
+            "day_of_week",
+            "p_up",
+            "p_down",
+            "q50_change_pct",
+            "target_price_q10",
+            "target_price_q50",
+            "target_price_q90",
+            "start_window_top1",
+            col_vol,
+            col_strength,
+            col_strength_score,
+            col_edge,
+            col_edge_risk,
+            col_action,
+            col_pos,
+            col_net_edge,
+            col_trend,
+            col_risk,
+            "confidence_score",
+        ]
+        show_cols = [c for c in show_cols if c in d.columns]
+        d_view = d[show_cols].rename(
+            columns={
+                "p_up": _t("上涨概率", "P(up)"),
+                "p_down": _t("下跌概率", "P(down)"),
+                "q50_change_pct": _t("预期涨跌幅(q50)", "Expected Change (q50)"),
+                "target_price_q10": _t("目标价格(q10)", "Target Price (q10)"),
+                "target_price_q50": _t("目标价格(q50)", "Target Price (q50)"),
+                "target_price_q90": _t("目标价格(q90)", "Target Price (q90)"),
+                "start_window_top1": "start_window_top1",
+                "confidence_score": _t("置信度", "Confidence"),
+                col_pos: col_pos,
+                col_net_edge: col_net_edge,
+            }
+        )
+        format_map_all = {
+            _t("上涨概率", "P(up)"): "{:.2%}",
+            _t("下跌概率", "P(down)"): "{:.2%}",
+            _t("预期涨跌幅(q50)", "Expected Change (q50)"): "{:+.2%}",
+            _t("目标价格(q10)", "Target Price (q10)"): "${:,.2f}",
+            _t("目标价格(q50)", "Target Price (q50)"): "${:,.2f}",
+            _t("目标价格(q90)", "Target Price (q90)"): "${:,.2f}",
+            col_vol: "{:.2%}",
+            col_strength_score: "{:.0f}",
+            col_edge: "{:+.2%}",
+            col_edge_risk: "{:+.3f}",
+            col_pos: "{:.1%}",
+            col_net_edge: "{:+.2%}",
+            _t("置信度", "Confidence"): "{:.1f}",
+        }
+        format_map = {k: v for k, v in format_map_all.items() if k in d_view.columns}
+        styled = d_view.style.format(format_map, na_rep="-")
+        signed_cols = [c for c in [_t("预期涨跌幅(q50)", "Expected Change (q50)"), col_edge, col_edge_risk] if c in d_view.columns]
+        if signed_cols:
+            styled = styled.applymap(_style_signed_value, subset=signed_cols)
+        if col_strength in d_view.columns:
+            styled = styled.applymap(_style_strength_label, subset=[col_strength])
+        if col_vol in d_view.columns:
+            try:
+                import matplotlib  # noqa: F401
+
+                styled = styled.background_gradient(cmap="YlOrRd", subset=[col_vol])
+            except Exception:
+                pass
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    t1, t2, t3 = st.columns([1, 1, 1.2])
+    top_n = int(t1.slider(_t("榜单显示 Top N", "Top N rows"), 3, 12, 5, 1, key="index_session_topn"))
+    rank_key = t2.selectbox(
+        _t("榜单排序标准", "Ranking Metric"),
+        options=list(_rank_metric_options().keys()),
+        index=list(_rank_metric_options().keys()).index("edge_score"),
+        format_func=lambda k: _rank_metric_options().get(k, k),
+        key="index_session_rank_key",
+    )
+    cost_mode_labels = {
+        "双边(开+平)": _t("双边(开+平)", "Round-trip (open+close)"),
+        "单边": _t("单边", "One-way"),
+    }
+    cost_mode = t3.selectbox(
+        _t("成本口径", "Cost Type"),
+        options=["双边(开+平)", "单边"],
+        index=0,
+        key="index_session_cost_side",
+        format_func=lambda x: cost_mode_labels.get(str(x), str(x)),
+        help=_t("默认使用双边成本，更保守。", "Round-trip cost is default (more conservative)."),
+    )
+    c31, c32 = st.columns([1, 1])
+    one_way_cost_bps = float(
+        c31.number_input(
+            _t("单边成本（bps）", "One-way Cost (bps)"),
+            min_value=0.0,
+            max_value=100.0,
+            value=max(0.0, cost_bps_state / 2.0),
+            step=1.0,
+            key="index_session_cost_bps_oneway",
+        )
+    )
+    is_round_trip_mode = str(cost_mode).startswith("双边") or str(cost_mode).startswith("Round-trip")
+    cost_bps = one_way_cost_bps * (2.0 if is_round_trip_mode else 1.0)
+    c32.metric(_t("当前用于计算的成本", "Cost used in calculation"), f"{cost_bps:.1f} bps")
+    with st.expander(_t("ⓘ edge 公式说明", "ⓘ Edge Formula"), expanded=False):
+        st.markdown(
+            _t(
+                "- `edge_score = q50_change_pct - cost_bps/10000`\n"
+                "- `edge_risk = edge_score / (q90_change_pct - q10_change_pct)`\n"
+                "- 当前 `cost_bps` 口径："
+                + ("双边（开仓+平仓）" if is_round_trip_mode else "单边")
+                + "。",
+                "- `edge_score = q50_change_pct - cost_bps/10000`\n"
+                "- `edge_risk = edge_score / (q90_change_pct - q10_change_pct)`\n"
+                "- Current `cost_bps` mode: "
+                + ("Round-trip (open+close)" if is_round_trip_mode else "One-way")
+                + ".",
+            )
+        )
+
+    hourly_for_rank = hourly_df.copy()
+    if "is_trading_hour" in hourly_for_rank.columns:
+        hourly_for_rank = hourly_for_rank[hourly_for_rank["is_trading_hour"] == 1].copy()
+    _render_top_tables(
+        hourly_df=hourly_for_rank,
+        daily_df=daily_df,
+        top_n=top_n,
+        rank_key=rank_key,
+        cost_bps=cost_bps,
+        weak_pp=weak_pp,
+        strong_pp=strong_pp,
+        horizon_hours=horizon_hours,
+    )
+
+    with st.expander(_t("如何解读这个页面？", "How to read this page?"), expanded=False):
+        st.markdown(
+            _t(
+                f"- 小时级语义：`从该小时开始的未来{int(horizon_hours)}h`，不是“该小时内必涨/必跌”。\n"
+                "- 看 `P(up)/P(down)` 判断方向概率。\n"
+                "- `信号强弱 = |P(up)-0.5|`：弱信号接近 coin flip，不要过度解读。\n"
+                "- 看 `预期涨跌幅(q50)` 判断幅度。\n"
+                "- 看 `波动强度` 和 `风险等级` 判断风险。\n"
+                "- 看 `edge_score / edge_risk` 判断机会值与风险调整后性价比。\n"
+                "- `Forecast` 与 `Seasonality` 是两种口径，分歧本身也是信息。",
+                f"- Hourly semantics: future `{int(horizon_hours)}h` return from each hour start, not guaranteed up/down within that hour.\n"
+                "- Use `P(up)/P(down)` for direction probability.\n"
+                "- `Signal strength = |P(up)-0.5|`: weak signals are close to coin flip.\n"
+                "- Use `q50 change` for expected magnitude.\n"
+                "- Use `volatility` and `risk level` for risk.\n"
+                "- Use `edge_score / edge_risk` for risk-adjusted opportunity.\n"
                 "- `Forecast` and `Seasonality` are two views; divergence itself is informative.",
             )
         )
@@ -5894,8 +8102,8 @@ def main() -> None:
     st.title("Multi-Market Forecast Dashboard")
     st.caption(
         _t(
-            "页面导航：Crypto / A股 / 美股 / 交易时间段预测 / Selection-Research-Tracking / Paper Trading-Execution",
-            "Navigation: Crypto / CN A-share / US Equity / Session Forecast / Selection-Research-Tracking / Paper Trading-Execution",
+            "页面导航：Crypto / A股 / 美股 / 交易时间段预测(Crypto) / 交易时间段预测(指数) / Selection-Research-Tracking / Paper Trading-Execution",
+            "Navigation: Crypto / CN A-share / US Equity / Session Forecast (Crypto) / Session Forecast (Indices) / Selection-Research-Tracking / Paper Trading-Execution",
         )
     )
     st.markdown(
@@ -5932,6 +8140,7 @@ div[data-testid="stMetricValue"] {
         ("cn", _t("A股 页面", "CN A-share Page")),
         ("us", _t("美股 页面", "US Equity Page")),
         ("session", _t("交易时间段预测（Crypto）", "Session Forecast (Crypto)")),
+        ("session_index", _t("交易时间段预测（指数）", "Session Forecast (Indices)")),
         ("tracking", _t("Selection / Research / Tracking 页面", "Selection / Research / Tracking")),
         ("execution", _t("Paper Trading / Execution 页面", "Paper Trading / Execution")),
     ]
@@ -5952,6 +8161,8 @@ div[data-testid="stMetricValue"] {
         _render_us_page()
     elif page_key == "session":
         _render_crypto_session_page()
+    elif page_key == "session_index":
+        _render_index_session_page()
     elif page_key == "execution":
         _render_execution_page(processed_dir)
     else:
