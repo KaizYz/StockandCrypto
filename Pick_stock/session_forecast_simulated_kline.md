@@ -76,30 +76,6 @@
   - `price_timestamp_market`
   - `price_timestamp_utc`
 
-### 4.1 缺字段与降级策略（必须明确）
-
-当输入字段不完整时，统一按以下优先级处理：
-
-1. `p_up` 缺失：
-- 用 `0.5` 兜底，并打 `fallback_p_up=1` 标记。
-
-2. `q50_change_pct` 缺失：
-- 先尝试邻近步插值；
-- 若仍缺失，用 `0.0`；
-- 记录 `fallback_q50=1`。
-
-3. `q10/q90` 缺失：
-- 若仅缺一侧：按 `q50 ± max(sigma_floor*1.2816, abs(q50)*0.3)` 估算；
-- 若两侧都缺：用 `q50 ± sigma_floor*1.2816`；
-- 记录 `fallback_band=1`。
-
-4. 同一步中 `q10 > q50` 或 `q50 > q90`（分位数异常）：
-- 强制排序修正为 `q10 <= q50 <= q90`；
-- 记录 `quantile_reordered=1`。
-
-5. 若连续缺失步数超过阈值（例如 `> n_steps*0.4`）：
-- 不渲染模拟K线，页面显示 `数据质量不足，已跳过模拟`。
-
 ---
 
 ## 5. 模拟方法（核心定义）
@@ -230,18 +206,6 @@
    - A股指数：北京时间（Asia/Shanghai）
    - 美股指数：美东时间（America/New_York），或在页面显式标注换算后的北京时间（两者择一但必须标注）
 
-### 6.3 美股时段口径（固定约定）
-
-为避免歧义，默认采用：
-
-1. `RTH only`（Regular Trading Hours）：
-- 09:30~16:00 America/New_York
-
-2. 不包含盘前/盘后（Pre/Post）；
-3. 若未来需要支持盘前盘后，新增参数：
-- `include_extended_hours: bool = False`
-- 并在页面显式展示当前口径（RTH / RTH+EXT）。
-
 ---
 
 ## 7. 输出字段（统一 DataFrame Schema）
@@ -334,17 +298,6 @@
 - 用 numpy 向量化生成 `[n_paths, n_steps]` 的采样矩阵
 - 避免 python for 循环逐路径逐步累乘
 
-### 10.3 计算保护阈值（防卡死）
-
-必须加硬阈值：
-
-1. `n_paths * n_steps <= 50_000`（默认阈值，可配置）
-2. 单次模拟 CPU 时间超时（例如 1.5s）则自动降级：
-- 优先减 `n_paths`（例如减半）
-- 仍超时则只输出 `close mean + q10/q90` 线图，不画蜡烛
-3. 页面提示：
-- `本次已自动降级以保证响应速度`
-
 ---
 
 ## 11. 验收标准（Done Definition）
@@ -357,21 +310,6 @@
 4. 增大 `n_paths` → 路径更平滑（统计稳定性提升）。
 5. 图中有 q10~q90 风险带，并展示终点与累计收益摘要。
 6. 页面有风险提示文案（见第 12 章）。
-
-### 11.1 分布校准验收（新增硬标准）
-
-在固定 `seed` 下，对每个 step 统计模拟输出并与输入目标对比：
-
-1. `|sim_p_up - p_up_input| <= 0.005`（0.5pp）
-2. `|sim_q50 - q50_input| <= 0.001`（0.1%）
-3. `|sim_q10 - q10_input| <= 0.0015`
-4. `|sim_q90 - q90_input| <= 0.0015`
-
-若超过阈值：
-
-1. 页面显示 `distribution_fit_warn`
-2. 记录到审计快照（见第 15 章）
-3. 在摘要卡标注“模拟拟合偏差偏高，仅供参考”。
 
 ---
 
@@ -400,52 +338,5 @@ English:
 1. 多模型路径混合（forecast + seasonality + event shock 加权）
 2. 路径分簇（乐观/中性/悲观）
 3. 对不同 regime（趋势/震荡/高波动）分别校准模拟参数
-
----
-
-## 14. 测试清单（必须补齐）
-
-建议新增单测/集成测试：
-
-1. 可复现性测试
-- 相同输入 + 相同 seed → 输出逐列一致；
-- 修改 seed → 终点分布发生变化。
-
-2. OHLC 合法性测试
-- 每步满足 `high >= max(open, close)`；
-- 每步满足 `low <= min(open, close)`；
-- 不出现负价或 NaN 连锁污染。
-
-3. 交易时段过滤测试（指数页）
-- 上证仅亚盘；
-- 美指仅 RTH（含 DST 切换日）；
-- 非交易时段不参与模拟、不渲染K线。
-
-4. 性能基线测试
-- 默认参数（24*300）在目标机器上耗时不超过阈值；
-- 触发降级时给出明确提示，不抛异常。
-
-5. 分布拟合测试
-- `sim_p_up/sim_q*` 与目标输入误差在第 11.1 阈值内。
-
----
-
-## 15. 审计快照（建议落地）
-
-每次模拟建议写入一条快照（json/csv），用于复盘与答辩审计：
-
-建议字段：
-
-1. `run_id, timestamp_utc, page_type(crypto/index), symbol/index_key`
-2. `data_hash, config_hash, git_hash`
-3. `seed, n_steps, n_paths, agg, vol_scale, sigma_floor, sigma_cap, wick_cap`
-4. `calendar_name, include_extended_hours, timezone_mode`
-5. `end_price_mean, end_ret_mean, band_width_mean`
-6. `fit_error_p_up, fit_error_q10, fit_error_q50, fit_error_q90`
-7. `degrade_flag, degrade_reason`
-
-建议文件：
-
-`data/processed/session_simulation_audit_log.jsonl`
 
 ---

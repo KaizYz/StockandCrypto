@@ -56,8 +56,8 @@
 - **产物**
   - `paper_orders.csv`
   - `paper_positions.csv`
-  - `paper_fills.csv`（可选但强烈建议；当前已存在）
-  - `paper_daily_pnl.csv`（**P0-1 新增产物**，当前代码未稳定产出）
+  - `paper_fills.csv`（可选但强烈建议）
+  - `paper_daily_pnl.csv`
   - `paper_run_log.jsonl`（每次运行一条记录，含 trace_id）
 - **通过标准**
   - 最小样本：交易次数 ≥ 100（或按策略设定最低交易频率）
@@ -142,16 +142,10 @@
   - 一键停机：`DISABLE_TRADING=true` 或系统开关
   - 触发条件（至少包含）：
     - 数据红警 / 模型红警 / 执行失败率超阈值 / 回撤超阈值
-  - **恢复条件（必须显式）**：
-    - 仅 `ops_admin` 角色可解除
-    - 最近连续 `N=3` 次健康检查全部通过（Data/Model/Risk）
-    - 解除操作必须写审计日志并附原因
 - **产物**
   - `kill_switch_events.jsonl`
-  - `kill_switch_recovery_log.jsonl`
 - **通过标准**
   - 触发后不再产生新订单，且原因可追溯
-  - 解除后首个执行窗口仅允许小仓位试运行（建议 0.25x）
 
 ---
 
@@ -202,14 +196,8 @@
 - `drift_red_count == 0`
 - `execution_fail_rate < 0.01`
 - `calendar_alignment_pass == true`
-- `min_trades_in_window` 按市场阈值：
-  - `crypto >= 120`
-  - `cn_equity >= 60`
-  - `us_equity >= 80`
-- `fold_variance` 使用明确阈值：
-  - `sharpe_std <= 0.35`
-  - `total_return_std <= 0.08`
-  - `max_drawdown_std <= 0.05`
+- `min_trades_in_window >= 100`（或按策略设定）
+- `fold_variance <= threshold`（例如 Sharpe/收益在 folds 间波动不能过大）
 
 ### 3.2 Crypto（示例）
 - `sharpe >= 0.8`
@@ -260,13 +248,12 @@
 1. `data/processed/backtest/metrics_summary.csv`
 2. `data/processed/execution/paper_orders.csv`
 3. `data/processed/execution/paper_positions.csv`
-4. `data/processed/execution/paper_fills.csv`（当前已存在）
-5. `data/processed/execution/paper_daily_pnl.csv`（P0-1 新增）
-6. `data/processed/drift_monitor_daily.csv`（与当前实现对齐）
-7. `data/processed/calendar_alignment_report.json`（P0-6 新增）
-8. `release_manifest.json`
-9. `release_signoff.md`（含 pass/fail 明细）
-10. 当前线上版本的：
+4. `data/processed/execution/paper_daily_pnl.csv`
+5. `data/processed/monitoring/drift_summary.csv`
+6. `data/processed/monitoring/calendar_alignment_report.json`
+7. `release_manifest.json`
+8. `release_signoff.md`（含 pass/fail 明细）
+9. 当前线上版本的：
    - `model_version`
    - `config_hash`
    - `data_hash`
@@ -301,3 +288,10 @@
     "cost_profile": "dynamic_v1"
   }
 }
+
+附录 B：最小可上线版本建议
+
+如果只做一个最小可上线版本：
+优先把 P0 全部完成，并保证 30 天前瞻 paper trading 能稳定运行与可复现，再考虑 P1/P2。
+
+::contentReference[oaicite:0]{index=0}
