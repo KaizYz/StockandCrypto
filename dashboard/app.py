@@ -4,8 +4,12 @@ import json
 import hashlib
 import importlib
 import subprocess
+import re
+from xml.etree import ElementTree
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+from urllib.parse import quote_plus
 
 import numpy as np
 import pandas as pd
@@ -199,6 +203,16 @@ def _reason_token_cn(token: object) -> str:
         "position_below_minimum": "仓位低于最小阈值",
         "signal_neutral": "信号中性",
         "flat": "观望",
+        "gate:no_go": "发布门禁未通过（Go/No-Go=NO GO）",
+        "execution:wait": "当前为观望状态",
+        "execution:forced_wait_by_failsafe": "风控保护触发：强制观望",
+        "data:prediction_unavailable": "预测数据不可用",
+        "risk:extreme": "风险过高（极高）",
+        "market:short_disallowed_cn": "A股不支持做空",
+        "market:short_disallowed_crypto_spot": "加密现货不支持做空",
+        "market:short_disallowed": "该市场当前不支持做空",
+        "signal:expired": "信号已过期",
+        "price:data_unavailable": "价格/数据不可用",
     }
     return mapping.get(key, str(token or "-"))
 
@@ -236,6 +250,16 @@ def _reason_token_en(token: object) -> str:
         "position_below_minimum": "Position size below minimum threshold",
         "signal_neutral": "Signal neutral",
         "flat": "Wait",
+        "gate:no_go": "Go-live gate failed (NO GO)",
+        "execution:wait": "Current action is wait",
+        "execution:forced_wait_by_failsafe": "Forced wait by risk failsafe",
+        "data:prediction_unavailable": "Prediction unavailable",
+        "risk:extreme": "Risk level is extreme",
+        "market:short_disallowed_cn": "Shorting not allowed in CN A-share",
+        "market:short_disallowed_crypto_spot": "Shorting not allowed in crypto spot",
+        "market:short_disallowed": "Shorting not allowed in this market",
+        "signal:expired": "Signal expired",
+        "price:data_unavailable": "Price/data unavailable",
     }
     return mapping.get(key, str(token or "-"))
 
@@ -475,6 +499,226 @@ INDEX_ACTIVE_SESSION: Dict[str, str] = {
 }
 
 
+def _date_set(values: List[str]) -> set[date]:
+    out: set[date] = set()
+    for x in values:
+        try:
+            out.add(pd.Timestamp(x).date())
+        except Exception:
+            continue
+    return out
+
+
+def _date_reason_map(values: Dict[str, Tuple[str, str]]) -> Dict[date, Tuple[str, str]]:
+    out: Dict[date, Tuple[str, str]] = {}
+    for k, v in values.items():
+        try:
+            out[pd.Timestamp(k).date()] = (str(v[0]), str(v[1]))
+        except Exception:
+            continue
+    return out
+
+
+# Source-aligned 2026 exchange holidays used by index daily simulation/trading-day forward dates.
+# For years not listed below, fallback is weekday-only.
+SSE_HOLIDAYS_2026 = _date_set(
+    [
+        "2026-01-01",
+        "2026-01-02",
+        "2026-02-16",
+        "2026-02-17",
+        "2026-02-18",
+        "2026-02-19",
+        "2026-02-20",
+        "2026-02-23",
+        "2026-04-06",
+        "2026-05-01",
+        "2026-05-04",
+        "2026-05-05",
+        "2026-06-19",
+        "2026-09-25",
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-05",
+        "2026-10-06",
+        "2026-10-07",
+    ]
+)
+
+
+SSE_HOLIDAY_REASONS_2026 = _date_reason_map(
+    {
+        "2026-01-01": ("元旦", "New Year's Day"),
+        "2026-01-02": ("元旦", "New Year's Day"),
+        "2026-02-16": ("春节", "Spring Festival"),
+        "2026-02-17": ("春节", "Spring Festival"),
+        "2026-02-18": ("春节", "Spring Festival"),
+        "2026-02-19": ("春节", "Spring Festival"),
+        "2026-02-20": ("春节", "Spring Festival"),
+        "2026-02-23": ("春节", "Spring Festival"),
+        "2026-04-06": ("清明节", "Qingming Festival"),
+        "2026-05-01": ("劳动节", "Labor Day"),
+        "2026-05-04": ("劳动节", "Labor Day"),
+        "2026-05-05": ("劳动节", "Labor Day"),
+        "2026-06-19": ("端午节", "Dragon Boat Festival"),
+        "2026-09-25": ("中秋节", "Mid-Autumn Festival"),
+        "2026-10-01": ("国庆节", "National Day"),
+        "2026-10-02": ("国庆节", "National Day"),
+        "2026-10-05": ("国庆节", "National Day"),
+        "2026-10-06": ("国庆节", "National Day"),
+        "2026-10-07": ("国庆节", "National Day"),
+    }
+)
+
+US_MARKET_HOLIDAYS_2026 = _date_set(
+    [
+        "2026-01-01",  # New Year's Day
+        "2026-01-19",  # MLK Day
+        "2026-02-16",  # Presidents' Day
+        "2026-04-03",  # Good Friday
+        "2026-05-25",  # Memorial Day
+        "2026-06-19",  # Juneteenth
+        "2026-07-03",  # Independence Day (Observed)
+        "2026-09-07",  # Labor Day
+        "2026-11-26",  # Thanksgiving
+        "2026-12-25",  # Christmas
+    ]
+)
+
+
+US_HOLIDAY_REASONS_2026 = _date_reason_map(
+    {
+        "2026-01-01": ("元旦", "New Year's Day"),
+        "2026-01-19": ("马丁路德金纪念日", "Martin Luther King Jr. Day"),
+        "2026-02-16": ("总统日", "Presidents' Day"),
+        "2026-04-03": ("耶稣受难日", "Good Friday"),
+        "2026-05-25": ("阵亡将士纪念日", "Memorial Day"),
+        "2026-06-19": ("六月节", "Juneteenth"),
+        "2026-07-03": ("独立日补休", "Independence Day (Observed)"),
+        "2026-09-07": ("劳动节", "Labor Day"),
+        "2026-11-26": ("感恩节", "Thanksgiving Day"),
+        "2026-12-25": ("圣诞节", "Christmas Day"),
+    }
+)
+
+
+def _index_holiday_set(index_key: str, year: int) -> set[date]:
+    key = str(index_key).strip().lower()
+    if year == 2026:
+        if key == "sse":
+            return set(SSE_HOLIDAYS_2026)
+        if key in {"djia", "nasdaq", "sp500"}:
+            return set(US_MARKET_HOLIDAYS_2026)
+    return set()
+
+
+def _index_holiday_reason(index_key: str, d_rule: date) -> Tuple[str, str] | None:
+    key = str(index_key).strip().lower()
+    if int(d_rule.year) == 2026:
+        if key == "sse":
+            return SSE_HOLIDAY_REASONS_2026.get(d_rule)
+        if key in {"djia", "nasdaq", "sp500"}:
+            return US_HOLIDAY_REASONS_2026.get(d_rule)
+    return None
+
+
+def _is_index_trading_date(index_key: str, d: date) -> bool:
+    if d.weekday() >= 5:
+        return False
+    return d not in _index_holiday_set(index_key, int(d.year))
+
+
+def _to_index_rule_date(index_key: str, d_bj: date) -> date:
+    key = str(index_key).strip().lower()
+    if key == "sse":
+        return d_bj
+    # US indices follow NYSE/NASDAQ holiday calendar; convert BJ date to NY date for rule lookup.
+    try:
+        return (
+            pd.Timestamp(d_bj)
+            .tz_localize("Asia/Shanghai")
+            .tz_convert("America/New_York")
+            .date()
+        )
+    except Exception:
+        return d_bj
+
+
+def _next_index_trading_dates(index_key: str, now_bj: pd.Timestamp, n: int) -> List[pd.Timestamp]:
+    key = str(index_key).strip().lower()
+    out: List[pd.Timestamp] = []
+    n_need = max(1, int(n))
+    guard = 0
+    max_guard = max(120, n_need * 40)
+
+    if key == "sse":
+        cur = now_bj.tz_convert("Asia/Shanghai").date()
+        while len(out) < n_need and guard < max_guard:
+            guard += 1
+            cur = cur + timedelta(days=1)
+            if _is_index_trading_date(key, cur):
+                out.append(pd.Timestamp(cur))
+        return out
+
+    # US indices: evaluate trading day in New York calendar, display as Beijing date.
+    now_ny = now_bj.tz_convert("America/New_York")
+    cur_ny = now_ny.date()
+    while len(out) < n_need and guard < max_guard:
+        guard += 1
+        cur_ny = cur_ny + timedelta(days=1)
+        if not _is_index_trading_date(key, cur_ny):
+            continue
+        ts_bj = (
+            pd.Timestamp(cur_ny)
+            .tz_localize("America/New_York")
+            .tz_convert("Asia/Shanghai")
+            .normalize()
+            .tz_localize(None)
+        )
+        out.append(ts_bj)
+    return out
+
+
+def _build_index_skipped_non_trading_days(
+    *,
+    index_key: str,
+    now_bj: pd.Timestamp,
+    future_trading_days: List[pd.Timestamp],
+) -> pd.DataFrame:
+    if not future_trading_days:
+        return pd.DataFrame()
+    start_date = now_bj.tz_convert("Asia/Shanghai").date() + timedelta(days=1)
+    end_date = max(pd.Timestamp(x).date() for x in future_trading_days)
+    trading_set = {pd.Timestamp(x).date() for x in future_trading_days}
+    rows: List[Dict[str, str]] = []
+    cur = start_date
+    while cur <= end_date:
+        if cur in trading_set:
+            cur = cur + timedelta(days=1)
+            continue
+        d_rule = _to_index_rule_date(index_key, cur)
+        if _is_index_trading_date(index_key, d_rule):
+            cur = cur + timedelta(days=1)
+            continue
+        reason = _index_holiday_reason(index_key, d_rule)
+        if reason is not None:
+            reason_zh, reason_en = reason
+            reason_code = "holiday"
+        else:
+            reason_zh, reason_en = ("周末休市", "Weekend")
+            reason_code = "weekend"
+        rows.append(
+            {
+                "date_bj": pd.Timestamp(cur).strftime("%Y-%m-%d"),
+                "reason_code": reason_code,
+                "reason_zh": reason_zh,
+                "reason_en": reason_en,
+            }
+        )
+        cur = cur + timedelta(days=1)
+    return pd.DataFrame(rows)
+
+
 def _index_active_session(index_key: str) -> str:
     key = str(index_key).strip().lower()
     return INDEX_ACTIVE_SESSION.get(key, "us")
@@ -544,6 +788,571 @@ def _yahoo_fetch_live_price(symbol: str) -> Tuple[float, str]:
         if np.isfinite(v):
             return float(v), "yahoo_quote"
     raise RuntimeError(f"Yahoo quote missing price fields for {symbol}")
+
+
+def _http_headers_default() -> Dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+
+
+def _yahoo_raw_value(value: Any) -> float:
+    if isinstance(value, dict):
+        return _safe_float(value.get("raw"))
+    return _safe_float(value)
+
+
+def _fetch_yahoo_search_news_rows(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    q = str(query or "").strip()
+    if not q:
+        return []
+    url = "https://query1.finance.yahoo.com/v1/finance/search"
+    params = {
+        "q": q,
+        "quotesCount": 1,
+        "newsCount": int(max(1, limit)),
+        "enableFuzzyQuery": "false",
+        "enableEnhancedTrivialQuery": "true",
+        "region": "US",
+        "lang": "en-US",
+    }
+    r = requests.get(url, params=params, headers=_http_headers_default(), timeout=12)
+    r.raise_for_status()
+    payload = r.json()
+    out: List[Dict[str, Any]] = []
+    for node in payload.get("news", []) or []:
+        title = str(node.get("title", "")).strip()
+        if not title:
+            continue
+        link = str(node.get("link", "")).strip()
+        if not link and isinstance(node.get("clickThroughUrl"), dict):
+            link = str(node.get("clickThroughUrl", {}).get("url", "")).strip()
+        provider = str(node.get("publisher", "")).strip() or "Yahoo"
+        ts_raw = _safe_float(node.get("providerPublishTime"))
+        ts_utc = pd.to_datetime(ts_raw, unit="s", utc=True, errors="coerce") if np.isfinite(ts_raw) else pd.NaT
+        out.append(
+            {
+                "title": title,
+                "url": link,
+                "source": provider,
+                "published_utc": ts_utc,
+                "provider": "yahoo_search",
+                "summary": str(node.get("summary", "")).strip(),
+            }
+        )
+    return out
+
+
+def _fetch_google_news_rss_rows(
+    query: str,
+    *,
+    lang: str,
+    region: str,
+    ceid: str,
+    limit: int = 10,
+) -> List[Dict[str, Any]]:
+    q = str(query or "").strip()
+    if not q:
+        return []
+    url = (
+        "https://news.google.com/rss/search?"
+        f"q={quote_plus(q)}&hl={quote_plus(lang)}&gl={quote_plus(region)}&ceid={quote_plus(ceid)}"
+    )
+    r = requests.get(url, headers=_http_headers_default(), timeout=12)
+    r.raise_for_status()
+    text = r.text
+    root = ElementTree.fromstring(text)
+    out: List[Dict[str, Any]] = []
+    for item in root.findall(".//item"):
+        title = str(item.findtext("title", "")).strip()
+        if not title:
+            continue
+        link = str(item.findtext("link", "")).strip()
+        source = str(item.findtext("source", "")).strip() or "Google News"
+        pub = str(item.findtext("pubDate", "")).strip()
+        ts_utc = pd.to_datetime(pub, utc=True, errors="coerce")
+        out.append(
+            {
+                "title": title,
+                "url": link,
+                "source": source,
+                "published_utc": ts_utc,
+                "provider": "google_rss",
+                "summary": "",
+            }
+        )
+        if len(out) >= int(max(1, limit)):
+            break
+    return out
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _fetch_symbol_latest_news(
+    market: str,
+    symbol: str,
+    display_name: str,
+    limit: int = 8,
+) -> pd.DataFrame:
+    mk = str(market or "").strip().lower()
+    sym = str(symbol or "").strip()
+    name = str(display_name or "").strip()
+
+    queries: List[str] = []
+    if mk == "cn_equity":
+        if name:
+            queries.append(name)
+            queries.append(f"{name} 股票")
+            queries.append(f"{name} 财报")
+        if sym:
+            queries.append(sym)
+    else:
+        if sym:
+            queries.append(sym)
+        if name and name.lower() != sym.lower():
+            queries.append(name)
+        if sym:
+            queries.append(f"{sym} earnings")
+    queries = [q for i, q in enumerate(queries) if q and q not in queries[:i]]
+
+    rows: List[Dict[str, Any]] = []
+    for q in queries[:3]:
+        try:
+            rows.extend(_fetch_yahoo_search_news_rows(q, limit=max(limit, 10)))
+        except Exception:
+            continue
+        if len(rows) >= limit:
+            break
+
+    if len(rows) < limit:
+        lang = "zh-CN" if mk == "cn_equity" else "en-US"
+        region = "CN" if mk == "cn_equity" else "US"
+        ceid = "CN:zh-Hans" if mk == "cn_equity" else "US:en"
+        for q in queries[:2]:
+            try:
+                rows.extend(
+                    _fetch_google_news_rss_rows(
+                        q,
+                        lang=lang,
+                        region=region,
+                        ceid=ceid,
+                        limit=max(limit, 10),
+                    )
+                )
+            except Exception:
+                continue
+            if len(rows) >= limit:
+                break
+
+    if not rows:
+        return pd.DataFrame(columns=["title", "url", "source", "published_utc", "provider", "summary"])
+    df = pd.DataFrame(rows)
+    if "published_utc" not in df.columns:
+        df["published_utc"] = pd.NaT
+    df["published_utc"] = pd.to_datetime(df["published_utc"], utc=True, errors="coerce")
+    df["title"] = df["title"].fillna("").astype(str).str.strip()
+    df["url"] = df["url"].fillna("").astype(str).str.strip()
+    df["source"] = df["source"].fillna("").astype(str).str.strip()
+    df = df[df["title"].str.len() > 0].copy()
+    df = df.sort_values(["published_utc"], ascending=False, na_position="last")
+    df = df.drop_duplicates(subset=["title", "url"], keep="first").head(int(max(1, limit))).reset_index(drop=True)
+    return df
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_symbol_earnings_snapshot(symbol: str) -> Dict[str, Any]:
+    sym = str(symbol or "").strip()
+    if not sym:
+        return {"ok": False, "error": "empty_symbol"}
+    root: Dict[str, Any] = {}
+    source = "quote_summary"
+    try:
+        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{sym}"
+        params = {
+            "modules": "calendarEvents,earnings,earningsTrend,financialData,summaryDetail,defaultKeyStatistics",
+        }
+        r = requests.get(url, params=params, headers=_http_headers_default(), timeout=12)
+        r.raise_for_status()
+        payload = r.json()
+        result = payload.get("quoteSummary", {}).get("result", [])
+        if result:
+            root = result[0]
+    except Exception:
+        root = {}
+
+    quote_row: Dict[str, Any] = {}
+    if not root:
+        source = "quote_fallback"
+        try:
+            q = requests.get(
+                "https://query1.finance.yahoo.com/v7/finance/quote",
+                params={"symbols": sym},
+                headers=_http_headers_default(),
+                timeout=12,
+            )
+            q.raise_for_status()
+            qr = q.json().get("quoteResponse", {}).get("result", [])
+            if qr:
+                quote_row = qr[0]
+        except Exception:
+            quote_row = {}
+        if not quote_row:
+            return {"ok": False, "error": "quote_summary_empty"}
+
+    next_earnings_ts = pd.NaT
+    earn_dates = (
+        root.get("calendarEvents", {})
+        .get("earnings", {})
+        .get("earningsDate", [])
+    )
+    date_raws: List[float] = []
+    for x in earn_dates if isinstance(earn_dates, list) else []:
+        v = _yahoo_raw_value(x)
+        if np.isfinite(v):
+            date_raws.append(v)
+    if date_raws:
+        next_earnings_ts = pd.to_datetime(min(date_raws), unit="s", utc=True, errors="coerce")
+    if pd.isna(next_earnings_ts):
+        for key in ["earningsTimestampStart", "earningsTimestamp", "earningsTimestampEnd"]:
+            v = _safe_float(quote_row.get(key))
+            if np.isfinite(v):
+                next_earnings_ts = pd.to_datetime(v, unit="s", utc=True, errors="coerce")
+                break
+
+    eps_actual = float("nan")
+    eps_estimate = float("nan")
+    eps_surprise = float("nan")
+    earnings_history_rows: List[Dict[str, Any]] = []
+    hist = root.get("earnings", {}).get("earningsHistory", {}).get("history", [])
+    if isinstance(hist, list) and hist:
+        h0 = hist[0]
+        eps_actual = _yahoo_raw_value(h0.get("epsActual"))
+        eps_estimate = _yahoo_raw_value(h0.get("epsEstimate"))
+        eps_surprise = _yahoo_raw_value(h0.get("surprisePercent"))
+        if np.isfinite(eps_surprise):
+            eps_surprise = eps_surprise / 100.0 if abs(eps_surprise) > 1.5 else eps_surprise
+        elif np.isfinite(eps_actual) and np.isfinite(eps_estimate) and abs(eps_estimate) > 1e-9:
+            eps_surprise = (eps_actual - eps_estimate) / abs(eps_estimate)
+        for h in hist[:6]:
+            q_end = pd.NaT
+            qv = _yahoo_raw_value(h.get("quarter"))
+            if np.isfinite(qv):
+                q_end = pd.to_datetime(qv, unit="s", utc=True, errors="coerce")
+            ea = _yahoo_raw_value(h.get("epsActual"))
+            ee = _yahoo_raw_value(h.get("epsEstimate"))
+            sp = _yahoo_raw_value(h.get("surprisePercent"))
+            if np.isfinite(sp):
+                sp = sp / 100.0 if abs(sp) > 1.5 else sp
+            elif np.isfinite(ea) and np.isfinite(ee) and abs(ee) > 1e-9:
+                sp = (ea - ee) / abs(ee)
+            earnings_history_rows.append(
+                {
+                    "quarter_end_utc": q_end,
+                    "eps_actual": ea,
+                    "eps_estimate": ee,
+                    "eps_surprise": sp,
+                }
+            )
+
+    earnings_growth = _yahoo_raw_value(root.get("financialData", {}).get("earningsGrowth"))
+    revenue_growth = _yahoo_raw_value(root.get("financialData", {}).get("revenueGrowth"))
+    gross_margin = _yahoo_raw_value(root.get("financialData", {}).get("grossMargins"))
+    operating_margin = _yahoo_raw_value(root.get("financialData", {}).get("operatingMargins"))
+    profit_margin = _yahoo_raw_value(root.get("financialData", {}).get("profitMargins"))
+    trailing_pe = _yahoo_raw_value(root.get("summaryDetail", {}).get("trailingPE"))
+    forward_pe = _yahoo_raw_value(root.get("summaryDetail", {}).get("forwardPE"))
+    if not np.isfinite(forward_pe):
+        forward_pe = _yahoo_raw_value(root.get("defaultKeyStatistics", {}).get("forwardPE"))
+    if not np.isfinite(trailing_pe):
+        trailing_pe = _safe_float(quote_row.get("trailingPE"))
+    if not np.isfinite(forward_pe):
+        forward_pe = _safe_float(quote_row.get("forwardPE"))
+    if not np.isfinite(earnings_growth):
+        earnings_growth = _safe_float(quote_row.get("earningsQuarterlyGrowth"))
+    if not np.isfinite(revenue_growth):
+        revenue_growth = _safe_float(quote_row.get("revenueGrowth"))
+    if not np.isfinite(gross_margin):
+        gross_margin = _safe_float(quote_row.get("grossMargins"))
+    if not np.isfinite(operating_margin):
+        operating_margin = _safe_float(quote_row.get("operatingMargins"))
+    if not np.isfinite(profit_margin):
+        profit_margin = _safe_float(quote_row.get("profitMargins"))
+    if not np.isfinite(eps_actual):
+        eps_actual = _safe_float(quote_row.get("epsTrailingTwelveMonths"))
+    if not np.isfinite(eps_estimate):
+        eps_estimate = _safe_float(quote_row.get("epsForward"))
+    if (not np.isfinite(eps_surprise)) and np.isfinite(eps_actual) and np.isfinite(eps_estimate) and abs(eps_actual) > 1e-9:
+        eps_surprise = (eps_estimate - eps_actual) / abs(eps_actual)
+
+    return {
+        "ok": True,
+        "symbol": sym,
+        "next_earnings_utc": next_earnings_ts,
+        "eps_actual": eps_actual,
+        "eps_estimate": eps_estimate,
+        "eps_surprise": eps_surprise,
+        "earnings_growth": earnings_growth,
+        "revenue_growth": revenue_growth,
+        "gross_margin": gross_margin,
+        "operating_margin": operating_margin,
+        "profit_margin": profit_margin,
+        "trailing_pe": trailing_pe,
+        "forward_pe": forward_pe,
+        "earnings_history": earnings_history_rows,
+        "source": source,
+    }
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_symbol_valuation_percentile_proxy(symbol: str, lookback_days: int = 3 * 365) -> Dict[str, Any]:
+    sym = str(symbol or "").strip()
+    if not sym:
+        return {"ok": False, "error": "empty_symbol"}
+    try:
+        bars, src = _yahoo_fetch_chart_bars(sym, interval="1d", range_text="5y")
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    closes = pd.to_numeric(bars.get("close"), errors="coerce").dropna()
+    if closes.empty:
+        return {"ok": False, "error": "no_close"}
+    if len(closes) > int(max(30, lookback_days)):
+        closes = closes.iloc[-int(max(30, lookback_days)) :]
+    cur = float(closes.iloc[-1])
+    arr = closes.to_numpy(dtype=float)
+    rank = float((arr <= cur).mean())
+    low = float(np.nanmin(arr))
+    high = float(np.nanmax(arr))
+    return {
+        "ok": True,
+        "symbol": sym,
+        "source": src,
+        "price_percentile": rank,
+        "range_low": low,
+        "range_high": high,
+        "current_price": cur,
+    }
+
+
+def _render_symbol_news_and_earnings(
+    *,
+    market: str,
+    symbol: str,
+    display_name: str,
+    snapshot_df: pd.DataFrame | None = None,
+) -> None:
+    st.markdown("---")
+    st.subheader(_t("最新新闻与财报解读", "Latest News & Earnings Brief"))
+    left, right = st.columns([1.6, 1.0])
+
+    mk = str(market or "").strip().lower()
+    tz_name = "Asia/Shanghai" if mk == "cn_equity" else "America/New_York"
+
+    with left:
+        st.markdown(f"**{_t('最新新闻', 'Latest News')}**")
+        news_df = pd.DataFrame()
+        try:
+            news_df = _fetch_symbol_latest_news(
+                market=market,
+                symbol=symbol,
+                display_name=display_name,
+                limit=8,
+            )
+        except Exception as exc:
+            st.info(_t(f"新闻抓取失败：{exc}", f"News fetch failed: {exc}"))
+        if news_df.empty:
+            st.info(_t("当前未抓到该标的可用新闻。", "No latest news is currently available for this symbol."))
+        else:
+            for _, r in news_df.iterrows():
+                title = str(r.get("title", "")).strip()
+                url = str(r.get("url", "")).strip()
+                source = str(r.get("source", "")).strip() or "Unknown"
+                ts = pd.to_datetime(r.get("published_utc"), utc=True, errors="coerce")
+                if pd.notna(ts):
+                    ts_text = ts.tz_convert(tz_name).strftime("%Y-%m-%d %H:%M %z")
+                else:
+                    ts_text = _t("时间未知", "time unknown")
+                if url:
+                    st.markdown(f"- [{title}]({url})")
+                else:
+                    st.markdown(f"- {title}")
+                st.caption(f"{source} | {ts_text}")
+
+    with right:
+        st.markdown(f"**{_t('财报解读', 'Earnings Interpretation')}**")
+        proxy_growth = float("nan")
+        proxy_value = float("nan")
+        proxy_mcap = float("nan")
+        if isinstance(snapshot_df, pd.DataFrame) and not snapshot_df.empty:
+            s0 = snapshot_df.iloc[0]
+            proxy_growth = _safe_float(s0.get("growth_factor"))
+            proxy_value = _safe_float(s0.get("value_factor"))
+            proxy_mcap = _safe_float(s0.get("market_cap_usd"))
+        try:
+            ep = _fetch_symbol_earnings_snapshot(symbol)
+        except Exception as exc:
+            ep = {"ok": False, "error": str(exc)}
+        try:
+            vproxy = _fetch_symbol_valuation_percentile_proxy(symbol)
+        except Exception as exc:
+            vproxy = {"ok": False, "error": str(exc)}
+
+        if not bool(ep.get("ok", False)):
+            st.info(
+                _t(
+                    "实时财报接口暂不可用，当前展示财务因子代理解读（用于快速参考）。",
+                    "Live earnings API is unavailable; showing factor-based proxy interpretation for quick reference.",
+                )
+            )
+            p1, p2, p3 = st.columns(3)
+            p1.metric(_t("成长因子(代理)", "Growth Factor (proxy)"), _format_change_pct(proxy_growth))
+            p2.metric(_t("价值因子(代理)", "Value Factor (proxy)"), _format_float(proxy_value, 4))
+            p3.metric(_t("市值(USD)", "Market Cap (USD)"), _format_price(proxy_mcap))
+            proxy_bullets: List[str] = []
+            if np.isfinite(proxy_growth):
+                if proxy_growth > 0.05:
+                    proxy_bullets.append(_t("成长因子偏强，财务扩张预期偏正。", "Growth factor is strong, suggesting positive expansion expectation."))
+                elif proxy_growth < -0.05:
+                    proxy_bullets.append(_t("成长因子偏弱，需关注后续财报确认。", "Growth factor is weak; wait for earnings confirmation."))
+                else:
+                    proxy_bullets.append(_t("成长因子中性，财务趋势暂不明显。", "Growth factor is neutral; financial trend is not strong yet."))
+            if np.isfinite(proxy_value):
+                proxy_bullets.append(_t("价值因子用于衡量估值性价比，建议结合PE/PB与行业对比。", "Value factor reflects valuation attractiveness; compare with peer PE/PB."))
+            if np.isfinite(proxy_mcap):
+                proxy_bullets.append(_t("大市值标的通常波动更稳，小市值弹性更高。", "Large caps are usually more stable; small caps tend to be more volatile."))
+            if not proxy_bullets:
+                proxy_bullets.append(_t("当前财务字段不足，建议结合价格行为与风控计划。", "Financial fields are limited now; combine with price action and risk plan."))
+            for text in proxy_bullets[:4]:
+                st.markdown(f"- {text}")
+            if bool(vproxy.get("ok", False)):
+                st.markdown(f"**{_t('估值分位（价格分位代理）', 'Valuation Percentile (price-proxy)')}**")
+                vp = _safe_float(vproxy.get("price_percentile"))
+                st.metric(
+                    _t("近3年价格分位", "3Y price percentile"),
+                    _format_change_pct(vp).replace("+", ""),
+                )
+                st.caption(
+                    _t(
+                        f"分位说明：{_format_change_pct(vp).replace('+', '')}，区间[{_format_price(vproxy.get('range_low'))}, {_format_price(vproxy.get('range_high'))}]。",
+                        f"Percentile: {_format_change_pct(vp).replace('+', '')}, range [{_format_price(vproxy.get('range_low'))}, {_format_price(vproxy.get('range_high'))}].",
+                    )
+                )
+                st.caption(
+                    _t(
+                        "这是估值位置代理，不等同PE历史分位。",
+                        "This is a valuation-position proxy, not a PE-history percentile.",
+                    )
+                )
+        else:
+            # Segment 1: earnings calendar
+            st.markdown(f"**{_t('财报日历', 'Earnings Calendar')}**")
+            c1, c2 = st.columns(2)
+            c1.metric("EPS", _format_float(ep.get("eps_actual"), 2))
+            c2.metric(_t("EPS超预期", "EPS Surprise"), _format_change_pct(ep.get("eps_surprise")))
+            c3, c4 = st.columns(2)
+            c3.metric(_t("盈利增速", "Earnings Growth"), _format_change_pct(ep.get("earnings_growth")))
+            c4.metric(_t("营收增速", "Revenue Growth"), _format_change_pct(ep.get("revenue_growth")))
+            c5, c6 = st.columns(2)
+            c5.metric("Trailing PE", _format_float(ep.get("trailing_pe"), 2))
+            c6.metric("Forward PE", _format_float(ep.get("forward_pe"), 2))
+
+            next_ts = pd.to_datetime(ep.get("next_earnings_utc"), utc=True, errors="coerce")
+            if pd.notna(next_ts):
+                now_utc = pd.Timestamp.now(tz="UTC")
+                days_left = int(np.floor((next_ts - now_utc) / pd.Timedelta(days=1)))
+                st.caption(
+                    _t(
+                        f"下次财报时间（市场时区）: {next_ts.tz_convert(tz_name).strftime('%Y-%m-%d %H:%M %z')}（约{days_left}天）",
+                        f"Next earnings time (market tz): {next_ts.tz_convert(tz_name).strftime('%Y-%m-%d %H:%M %z')} (~{days_left} days)",
+                    )
+                )
+
+            # Segment 2: last earnings beat/miss
+            st.markdown(f"**{_t('上次财报解读', 'Last Earnings Read')}**")
+            bullets: List[str] = []
+            eps_surprise = _safe_float(ep.get("eps_surprise"))
+            if np.isfinite(eps_surprise):
+                if eps_surprise >= 0.05:
+                    bullets.append(_t(f"最近一次EPS明显超预期（{eps_surprise:+.2%}）。", f"Latest EPS beat estimate materially ({eps_surprise:+.2%})."))
+                elif eps_surprise <= -0.05:
+                    bullets.append(_t(f"最近一次EPS低于预期（{eps_surprise:+.2%}）。", f"Latest EPS missed estimate ({eps_surprise:+.2%})."))
+                else:
+                    bullets.append(_t(f"最近一次EPS基本符合预期（{eps_surprise:+.2%}）。", f"Latest EPS was near estimate ({eps_surprise:+.2%})."))
+            eg = _safe_float(ep.get("earnings_growth"))
+            rg = _safe_float(ep.get("revenue_growth"))
+            if np.isfinite(eg):
+                bullets.append(_t(f"盈利增速：{eg:+.2%}。", f"Earnings growth: {eg:+.2%}."))
+            if np.isfinite(rg):
+                bullets.append(_t(f"营收增速：{rg:+.2%}。", f"Revenue growth: {rg:+.2%}."))
+            fpe = _safe_float(ep.get("forward_pe"))
+            tpe = _safe_float(ep.get("trailing_pe"))
+            if np.isfinite(fpe) and np.isfinite(tpe) and tpe > 0:
+                if fpe < tpe:
+                    bullets.append(_t("前瞻PE低于历史PE，估值预期偏改善。", "Forward PE is below trailing PE, suggesting improving valuation expectations."))
+                elif fpe > tpe:
+                    bullets.append(_t("前瞻PE高于历史PE，估值预期偏谨慎。", "Forward PE is above trailing PE, implying more cautious valuation expectation."))
+
+            if not bullets:
+                bullets.append(_t("财报字段不足，建议结合价格行为与风险控制共同判断。", "Limited earnings fields; combine with price action and risk controls."))
+            for text in bullets[:4]:
+                st.markdown(f"- {text}")
+
+            hist_rows = ep.get("earnings_history", [])
+            if isinstance(hist_rows, list) and hist_rows:
+                hist_df = pd.DataFrame(hist_rows).copy()
+                hist_df["quarter_end_utc"] = pd.to_datetime(hist_df["quarter_end_utc"], utc=True, errors="coerce")
+                hist_df["quarter"] = hist_df["quarter_end_utc"].dt.tz_convert(tz_name).dt.strftime("%Y-%m-%d")
+                hist_df["eps_actual"] = hist_df["eps_actual"].map(lambda x: _format_float(x, 2))
+                hist_df["eps_estimate"] = hist_df["eps_estimate"].map(lambda x: _format_float(x, 2))
+                hist_df["eps_surprise"] = hist_df["eps_surprise"].map(_format_change_pct)
+                show_cols = [c for c in ["quarter", "eps_actual", "eps_estimate", "eps_surprise"] if c in hist_df.columns]
+                if show_cols:
+                    st.dataframe(
+                        hist_df[show_cols].head(4).rename(
+                            columns={
+                                "quarter": _t("季度截止", "Quarter End"),
+                                "eps_actual": _t("实际EPS", "Actual EPS"),
+                                "eps_estimate": _t("预期EPS", "Est. EPS"),
+                                "eps_surprise": _t("超预期", "Surprise"),
+                            }
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            # Segment 3: valuation percentile proxy
+            st.markdown(f"**{_t('估值分位（代理）', 'Valuation Percentile (proxy)')}**")
+            if bool(vproxy.get("ok", False)):
+                vp = _safe_float(vproxy.get("price_percentile"))
+                st.metric(_t("近3年价格分位", "3Y price percentile"), _format_change_pct(vp).replace("+", ""))
+                if np.isfinite(vp):
+                    if vp >= 0.8:
+                        st.caption(_t("当前位置偏高分位，估值/价格弹性风险更高。", "Current position is high percentile; valuation/price elasticity risk is higher."))
+                    elif vp <= 0.2:
+                        st.caption(_t("当前位置偏低分位，若基本面改善可能有修复空间。", "Current position is low percentile; recovery upside may exist if fundamentals improve."))
+                    else:
+                        st.caption(_t("当前位置处于中位附近，估值状态中性。", "Current position is around mid percentile; valuation state is neutral."))
+                st.caption(
+                    _t(
+                        f"代理区间：[{_format_price(vproxy.get('range_low'))}, {_format_price(vproxy.get('range_high'))}]，当前{_format_price(vproxy.get('current_price'))}。",
+                        f"Proxy range: [{_format_price(vproxy.get('range_low'))}, {_format_price(vproxy.get('range_high'))}], current {_format_price(vproxy.get('current_price'))}.",
+                    )
+                )
+                st.caption(
+                    _t(
+                        "注：这是价格位置代理，不是严格PE历史分位。",
+                        "Note: this is a price-position proxy, not strict PE-history percentile.",
+                    )
+                )
+            else:
+                st.caption(_t("估值分位代理暂不可用。", "Valuation percentile proxy is unavailable now."))
+            st.caption(
+                _t(
+                    f"数据源：Yahoo Finance（实时接口，{ep.get('source', 'live')}）",
+                    f"Source: Yahoo Finance (live API, {ep.get('source', 'live')})",
+                )
+            )
 
 
 def _session_from_hour_bj(hour_bj: int) -> str:
@@ -654,7 +1463,13 @@ def _build_hourly_profile_from_index_hist(hourly_hist: pd.DataFrame, horizon_hou
     return out
 
 
-def _build_daily_rows_from_index_hist(daily_hist: pd.DataFrame, lookforward_days: int, now_bj: pd.Timestamp, mode: str) -> pd.DataFrame:
+def _build_daily_rows_from_index_hist(
+    daily_hist: pd.DataFrame,
+    lookforward_days: int,
+    now_bj: pd.Timestamp,
+    mode: str,
+    index_key: str,
+) -> pd.DataFrame:
     work = daily_hist[["timestamp_utc", "close"]].copy()
     work["ret_1d"] = work["close"].shift(-1) / work["close"] - 1.0
     work = work.dropna(subset=["ret_1d"]).copy()
@@ -688,9 +1503,12 @@ def _build_daily_rows_from_index_hist(daily_hist: pd.DataFrame, lookforward_days
     if not np.isfinite(sigma_recent) or sigma_recent <= 1e-6:
         sigma_recent = 0.01
     use_forecast = str(mode).strip().lower() == "forecast"
+    future_trading_days = _next_index_trading_dates(index_key=str(index_key), now_bj=now_bj, n=int(lookforward_days))
+    if not future_trading_days:
+        return pd.DataFrame()
+
     rows: List[Dict[str, Any]] = []
-    for i in range(1, int(lookforward_days) + 1):
-        d = (now_bj.normalize() + pd.Timedelta(days=i)).tz_localize(None)
+    for i, d in enumerate(future_trading_days, start=1):
         dow = pd.Timestamp(d).day_name()
         dow_stats = grouped_map.get(dow, fallback)
         if use_forecast:
@@ -723,6 +1541,7 @@ def _build_daily_rows_from_index_hist(daily_hist: pd.DataFrame, lookforward_days
                 "q90": q90,
                 "sample_size": sample_size,
                 "start_window_top1": "W1",
+                "is_trading_day": 1,
             }
         )
     return pd.DataFrame(rows)
@@ -870,6 +1689,17 @@ def _build_index_session_bundle_cached(
         lookforward_days=int(lookforward_days),
         now_bj=now_bj,
         mode=mode_requested,
+        index_key=str(index_key),
+    )
+    future_trading_days = (
+        pd.to_datetime(daily_rows.get("date_bj"), errors="coerce").dropna().tolist()
+        if not daily_rows.empty
+        else []
+    )
+    skipped_non_trading_df = _build_index_skipped_non_trading_days(
+        index_key=str(index_key),
+        now_bj=now_bj,
+        future_trading_days=future_trading_days,
     )
     daily = _apply_index_labels_and_prices(daily_rows, current_price)
     daily["date_bj"] = pd.to_datetime(daily["date_bj"], errors="coerce").dt.strftime("%Y-%m-%d")
@@ -981,6 +1811,7 @@ def _build_index_session_bundle_cached(
         "data_source_actual": source_actual,
         "timezone": timezone,
         "active_session": active_session,
+        "skipped_non_trading_days": skipped_non_trading_df.to_dict(orient="records"),
     }
     return hourly, blocks, daily, meta
 
@@ -1149,7 +1980,7 @@ def _signal_strength_text(label: object) -> str:
 def _signal_strength_human_text(label: object) -> str:
     lv = str(label or "")
     if lv in {"强", "strong"}:
-        return _t("强信号（可执行）", "Strong Signal (Executable)")
+        return _t("强信号（方向优势）", "Strong Signal (Directional edge)")
     if lv in {"中", "medium"}:
         return _t("中等信号（需风控）", "Medium Signal (Risk-control needed)")
     if lv in {"弱", "weak"}:
@@ -1757,6 +2588,182 @@ def _action_color(action: str) -> str:
     return "#94a3b8"
 
 
+def _execution_state_from_plan(plan: Dict[str, object]) -> str:
+    status = str(plan.get("trade_status", "")).upper()
+    touched = bool(plan.get("entry_touched", False))
+    if status in {"BLOCKED", "EXPIRED"}:
+        return "BLOCKED"
+    if status == "READY":
+        return "EXECUTABLE"
+    if touched:
+        return "TOUCHED_PENDING"
+    return "WAIT_ENTRY"
+
+
+def _execution_state_text(code: str) -> str:
+    key = str(code or "").upper()
+    mapping = {
+        "EXECUTABLE": _t("可执行", "Executable"),
+        "TOUCHED_PENDING": _t("到价待确认", "Touched, waiting confirmation"),
+        "WAIT_ENTRY": _t("未到价", "Not touched yet"),
+        "BLOCKED": _t("被风控拦截", "Risk blocked"),
+    }
+    return mapping.get(key, _t("未定义", "Unknown"))
+
+
+def _execution_state_icon(code: str) -> str:
+    key = str(code or "").upper()
+    mapping = {
+        "EXECUTABLE": "✅",
+        "TOUCHED_PENDING": "🟡",
+        "WAIT_ENTRY": "⏳",
+        "BLOCKED": "⛔",
+    }
+    return mapping.get(key, "•")
+
+
+def _execution_state_color(code: str) -> str:
+    key = str(code or "").upper()
+    mapping = {
+        "EXECUTABLE": "#22c55e",
+        "TOUCHED_PENDING": "#f59e0b",
+        "WAIT_ENTRY": "#38bdf8",
+        "BLOCKED": "#ef4444",
+    }
+    return mapping.get(key, "#94a3b8")
+
+
+def _extract_reason_lines(plan: Dict[str, object]) -> Tuple[List[str], str]:
+    supports: List[str] = []
+    blockers: List[str] = []
+    for label, ok in plan.get("selected_checks", []):
+        if bool(ok) and len(supports) < 2:
+            supports.append(str(label))
+    for code in plan.get("gate_reason_codes", []):
+        text = _reason_token_text(code)
+        if text and text not in blockers:
+            blockers.append(text)
+    for label in plan.get("failed_checks", []):
+        txt = str(label).strip()
+        if txt and txt not in blockers:
+            blockers.append(txt)
+    blocker = blockers[0] if blockers else _t("暂无明确阻断项", "No explicit blocker")
+    while len(supports) < 2:
+        supports.append(_t("规则侧信息不足", "Insufficient rule-side evidence"))
+    return supports[:2], blocker
+
+
+def _estimate_plan_hit_metrics(plan: Dict[str, object]) -> Dict[str, float]:
+    side = str(plan.get("plan_side", "LONG")).upper()
+    entry = _safe_float(plan.get("entry"))
+    sl = _safe_float(plan.get("stop_loss"))
+    tp1 = _safe_float(plan.get("take_profit"))
+    tp2 = _safe_float(plan.get("take_profit_2"))
+    p_up = _safe_float(plan.get("p_up"))
+    p_down = _safe_float(plan.get("p_down"))
+    rr = _safe_float(plan.get("rr"))
+    edge_active = _safe_float(plan.get("edge_long")) if side == "LONG" else _safe_float(plan.get("edge_short"))
+
+    if not np.isfinite(p_down) and np.isfinite(p_up):
+        p_down = 1.0 - p_up
+    p_dir = p_up if side == "LONG" else p_down
+    if not np.isfinite(p_dir):
+        p_dir = 0.5
+
+    risk = float("nan")
+    reward1 = float("nan")
+    reward2 = float("nan")
+    if np.isfinite(entry) and abs(entry) > 1e-12 and np.isfinite(sl):
+        risk = abs((entry - sl) / entry)
+    if np.isfinite(entry) and abs(entry) > 1e-12 and np.isfinite(tp1):
+        reward1 = abs((tp1 - entry) / entry)
+    if np.isfinite(entry) and abs(entry) > 1e-12 and np.isfinite(tp2):
+        reward2 = abs((tp2 - entry) / entry)
+
+    rr_factor = np.clip((rr if np.isfinite(rr) else 1.0) / 2.0, 0.0, 1.0)
+    edge_factor = 0.5
+    if np.isfinite(edge_active):
+        edge_factor = float(np.clip((edge_active * 10000.0 + 10.0) / 40.0, 0.0, 1.0))
+    p_tp1 = float(np.clip(0.55 * p_dir + 0.25 * rr_factor + 0.20 * edge_factor, 0.05, 0.95))
+    p_tp2 = float(np.clip(p_tp1 * (0.55 + 0.25 * rr_factor), 0.02, 0.90))
+
+    ev1 = float("nan")
+    if np.isfinite(reward1) and np.isfinite(risk):
+        ev1 = p_tp1 * reward1 - (1.0 - p_tp1) * risk
+    return {
+        "p_tp1_before_sl": p_tp1,
+        "p_tp2_before_sl": p_tp2,
+        "expected_value_tp1": ev1,
+        "risk_pct": risk,
+        "reward_tp1_pct": reward1,
+        "reward_tp2_pct": reward2,
+    }
+
+
+def _render_position_sizing_widget(plan: Dict[str, object], *, key_prefix: str) -> None:
+    entry = _safe_float(plan.get("entry"))
+    sl = _safe_float(plan.get("stop_loss"))
+    if not (np.isfinite(entry) and np.isfinite(sl) and abs(entry) > 1e-12):
+        return
+    risk_dist = abs((entry - sl) / entry)
+    if not np.isfinite(risk_dist) or risk_dist <= 1e-8:
+        return
+
+    with st.expander(_t("仓位/杠杆建议（风险预算）", "Position/Leverage Suggestion (Risk Budget)"), expanded=False):
+        c1, c2, c3 = st.columns(3)
+        capital = float(
+            c1.number_input(
+                _t("账户资金", "Account Equity"),
+                min_value=100.0,
+                max_value=100000000.0,
+                value=10000.0,
+                step=500.0,
+                key=f"{key_prefix}_cap",
+            )
+        )
+        risk_pct = float(
+            c2.slider(
+                _t("单笔风险(%)", "Risk per Trade (%)"),
+                min_value=0.1,
+                max_value=5.0,
+                value=1.0,
+                step=0.1,
+                key=f"{key_prefix}_risk_pct",
+            )
+            / 100.0
+        )
+        leverage_cap = float(
+            c3.slider(
+                _t("最大杠杆上限", "Max Leverage Cap"),
+                min_value=1.0,
+                max_value=20.0,
+                value=3.0,
+                step=0.5,
+                key=f"{key_prefix}_lev_cap",
+            )
+        )
+
+        risk_budget = capital * risk_pct
+        raw_notional = risk_budget / risk_dist
+        max_notional = capital * leverage_cap
+        used_notional = float(min(raw_notional, max_notional))
+        used_leverage = float(max(1.0, used_notional / max(capital, 1e-9)))
+        est_max_loss = used_notional * risk_dist
+        pos_pct = used_notional / max(capital, 1e-9)
+
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric(_t("建议名义仓位", "Suggested Notional"), _format_price(used_notional))
+        r2.metric(_t("建议仓位占比", "Position %"), f"{pos_pct:.1%}")
+        r3.metric(_t("建议杠杆", "Suggested Leverage"), f"{used_leverage:.2f}x")
+        r4.metric(_t("预计最大亏损", "Estimated Max Loss"), _format_price(est_max_loss))
+        st.caption(
+            _t(
+                f"口径：风险预算={risk_pct:.1%}，止损距离={risk_dist:.2%}。若超出杠杆上限({leverage_cap:.1f}x)则自动截断仓位。",
+                f"Basis: risk budget={risk_pct:.1%}, stop distance={risk_dist:.2%}. Position is capped by leverage limit ({leverage_cap:.1f}x).",
+            )
+        )
+
+
 def _select_session_decision_row(
     hourly_df: pd.DataFrame,
     *,
@@ -2233,6 +3240,19 @@ def _render_simulated_kline_panel(
         m3.metric(_t("最大上冲", "Max Up from Start"), _format_change_pct(sim_summary_show.get("max_up_from_start")))
         m4.metric(_t("最大回撤", "Max Drawdown from Start"), _format_change_pct(sim_summary_show.get("max_dd_from_start")))
         m5.metric(_t("平均带宽(%)", "Average Band Width (%)"), _format_change_pct(sim_summary_show.get("avg_band_width_pct")))
+        if "date_bj" in sim_df_show.columns:
+            dts = pd.to_datetime(sim_df_show.get("date_bj"), errors="coerce").dropna().sort_values()
+            if len(dts) > 1:
+                gaps = (dts.diff().dt.days.fillna(1) - 1).clip(lower=0)
+                skipped_days = int(pd.to_numeric(gaps, errors="coerce").fillna(0).sum())
+                max_gap = int(pd.to_numeric(gaps, errors="coerce").fillna(0).max())
+                if skipped_days > 0:
+                    st.caption(
+                        _t(
+                            f"日线为交易日序列：本段已自动跳过 {skipped_days} 天非交易日（最大连续跳过 {max_gap} 天）。",
+                            f"Daily candles use trading-day sequence: skipped {skipped_days} non-trading days in this window (max consecutive gap {max_gap} days).",
+                        )
+                    )
 
         if isinstance(trade_plan, dict):
             entry = _safe_float(trade_plan.get("entry"))
@@ -3539,6 +4559,27 @@ def _render_index_session_page() -> None:
             )
         )
         st.caption(f"Data Source Detail: {meta.get('data_source_actual', '-')}")
+    skip_rows = meta.get("skipped_non_trading_days", [])
+    with st.expander(_t("休市跳过说明（日线）", "Skipped Non-trading Days (Daily)"), expanded=False):
+        if isinstance(skip_rows, list) and len(skip_rows) > 0:
+            skip_df = pd.DataFrame(skip_rows)
+            show = pd.DataFrame()
+            show[_t("北京时间日期", "Beijing Date")] = skip_df.get("date_bj", pd.Series(dtype=str)).astype(str)
+            show[_t("原因", "Reason")] = np.where(
+                _ui_lang() == "zh",
+                skip_df.get("reason_zh", pd.Series(dtype=str)).astype(str),
+                skip_df.get("reason_en", pd.Series(dtype=str)).astype(str),
+            )
+            show[_t("类型", "Type")] = skip_df.get("reason_code", pd.Series(dtype=str)).astype(str)
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.caption(
+                _t(
+                    f"已在日线预测/日线模拟中自动跳过 {len(skip_df)} 天非交易日（周末+法定休市）。",
+                    f"Skipped {len(skip_df)} non-trading days (weekends + official holidays) in daily forecast/simulation.",
+                )
+            )
+        else:
+            st.caption(_t("当前窗口内无需要额外跳过的非交易日。", "No extra non-trading days in current window."))
 
     policy_cfg = (cfg.get("policy", {}) if isinstance(cfg, dict) else {})
     th_cfg = policy_cfg.get("thresholds", {})
@@ -4430,6 +5471,75 @@ def _reliability_level_text(summary: Dict[str, float] | None) -> str:
     )
 
 
+def _reliability_level_brief(summary: Dict[str, float] | None) -> str:
+    if not summary:
+        return _t("暂无", "N/A")
+    brier = float(summary.get("brier", float("nan")))
+    coverage = float(summary.get("coverage", float("nan")))
+    if not np.isfinite(brier) or not np.isfinite(coverage):
+        return _t("暂无", "N/A")
+    if brier <= 0.18 and 0.72 <= coverage <= 0.88:
+        return _t("高", "High")
+    if brier <= 0.24 and 0.65 <= coverage <= 0.92:
+        return _t("中", "Medium")
+    return _t("低", "Low")
+
+
+def _horizon_to_timedelta(horizon_label: object) -> pd.Timedelta:
+    text = str(horizon_label or "").strip().lower()
+    m = re.match(r"^\s*(\d+)\s*([hd])\s*$", text)
+    if m:
+        n = max(1, int(m.group(1)))
+        unit = m.group(2)
+        return pd.Timedelta(hours=n) if unit == "h" else pd.Timedelta(days=n)
+    return pd.Timedelta(hours=4)
+
+
+def _is_go_live_no_go(path: Path | None = None) -> bool:
+    # Local debug override: allow UI testing even if go-live gate is NO GO.
+    try:
+        if bool(st.session_state.get("debug_ignore_no_go", False)):
+            return False
+    except Exception:
+        pass
+    p = path or (Path("data/processed") / "go_live_decision.json")
+    try:
+        if not p.exists():
+            return False
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        return not bool(payload.get("go_live", {}).get("all_pass", True))
+    except Exception:
+        return False
+
+
+def _go_live_failed_rules_summary(path: Path | None = None, max_items: int = 3) -> List[str]:
+    p = path or (Path("data/processed") / "go_live_decision.json")
+    try:
+        if not p.exists():
+            return []
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        rules = payload.get("go_live", {}).get("rules", [])
+        if not isinstance(rules, list):
+            return []
+        out: List[str] = []
+        for r in rules:
+            if not isinstance(r, dict):
+                continue
+            if bool(r.get("pass", True)):
+                continue
+            metric = str(r.get("metric", "-"))
+            op = str(r.get("op", "-"))
+            th = r.get("threshold", "-")
+            val = r.get("value", "-")
+            market = str(r.get("market", "all"))
+            out.append(f"{market}.{metric}: {val} {op} {th}")
+            if len(out) >= max_items:
+                break
+        return out
+    except Exception:
+        return []
+
+
 def _entry_touch_state_path(processed_dir: Path | None = None) -> Path:
     root = processed_dir or Path("data/processed")
     out = root / "execution"
@@ -4611,8 +5721,30 @@ def _build_trade_decision_plan(
             row.get("timestamp_utc", row.get("latest_utc", row.get("generated_at_utc", "-"))),
         )
     )
-    signal_time_utc = str(row.get("generated_at_utc", row.get("timestamp_utc", price_timestamp_utc)))
-    valid_until = str(row.get("expected_date_market", row.get("expected_date_utc", "-")))
+    now_utc = pd.Timestamp.now(tz="UTC")
+    source_signal_time = str(row.get("generated_at_utc", row.get("timestamp_utc", price_timestamp_utc)))
+    source_valid_until = str(row.get("expected_date_market", row.get("expected_date_utc", "-")))
+    horizon_td = _horizon_to_timedelta(horizon_label)
+
+    sig_ts = pd.to_datetime(source_signal_time, utc=True, errors="coerce")
+    stale_limit = max(pd.Timedelta(hours=24), horizon_td * 2)
+    if pd.isna(sig_ts) or (now_utc - sig_ts) > stale_limit:
+        sig_ts = now_utc
+    signal_time_utc = sig_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    vu_ts = pd.to_datetime(source_valid_until, utc=True, errors="coerce")
+    if pd.isna(vu_ts):
+        vu_ts = sig_ts + horizon_td
+    elif vu_ts <= now_utc:
+        # If upstream validity is already expired, regenerate a fresh signal window from now.
+        sig_ts = now_utc
+        signal_time_utc = sig_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+        vu_ts = sig_ts + horizon_td
+    tz_name_valid = str(row.get("timezone", "Asia/Shanghai")) or "Asia/Shanghai"
+    try:
+        valid_until = vu_ts.tz_convert(tz_name_valid).strftime("%Y-%m-%d %H:%M:%S %z")
+    except Exception:
+        valid_until = vu_ts.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
     entry_candidates = [
         _safe_float(row.get("signal_entry_price")),
         _safe_float(row.get("entry_price_snapshot")),
@@ -4837,9 +5969,21 @@ def _build_trade_decision_plan(
     checks_total = int(len(selected_checks))
     failed_checks = [label for label, ok in selected_checks if not ok]
     gate_blocked = not (np.isfinite(current_price) and np.isfinite(entry))
+    gate_no_go = _is_go_live_no_go()
+    if gate_no_go:
+        gate_blocked = True
+    gate_reason_codes: List[str] = []
+    if gate_no_go:
+        gate_reason_codes.append("gate:no_go")
+    elif gate_blocked:
+        gate_reason_codes.append("price:data_unavailable")
     valid_until_ts = pd.to_datetime(valid_until, utc=True, errors="coerce")
     expired = bool(pd.notna(valid_until_ts) and pd.Timestamp.now(tz="UTC") > valid_until_ts)
-    if gate_blocked:
+    if expired:
+        gate_reason_codes.append("signal:expired")
+    if gate_no_go:
+        trade_status = "BLOCKED"
+    elif gate_blocked:
         trade_status = "BLOCKED"
     elif expired:
         trade_status = "EXPIRED"
@@ -4866,10 +6010,33 @@ def _build_trade_decision_plan(
         trade_status_note = _t(f"规则未通过：{fail_text}", f"Rules failed: {fail_text}")
     elif trade_status == "EXPIRED":
         trade_status_note = _t("信号已过期，请刷新重算。", "Signal expired. Refresh and recompute.")
+    elif gate_no_go:
+        trade_status_note = _t("发布门禁未通过（NO GO），暂不可执行。", "Go-live gate is NO GO; execution is blocked.")
     else:
         trade_status_note = _t("价格/数据缺失，暂不可执行。", "Price/data missing. Execution blocked.")
 
+    execution_state = _execution_state_from_plan(
+        {
+            "trade_status": trade_status,
+            "entry_touched": entry_touched,
+        }
+    )
+    execution_state_text = _execution_state_text(execution_state)
+    execution_state_icon = _execution_state_icon(execution_state)
+
+    news_risk_level = str(row.get("news_risk_level", "low")).strip().lower()
+    news_gate_raw = str(row.get("news_gate_pass", "true")).strip().lower()
+    news_event_raw = str(row.get("news_event_risk", "false")).strip().lower()
+    news_gate_pass = news_gate_raw in {"1", "true", "yes", "y", "on"}
+    news_event_flag = news_event_raw in {"1", "true", "yes", "y", "on"}
+
     strength = _signal_strength_label(abs(_safe_float(p_up - 0.5)) * 100.0 if np.isfinite(p_up) else float("nan"), 2.0, 5.0)
+    strength_score = float(np.clip(abs(_safe_float(p_up - 0.5)) * 200.0, 0.0, 100.0)) if np.isfinite(p_up) else float("nan")
+    active_edge = edge_long if plan_side == "LONG" else edge_short
+    edge_norm = float(np.clip((_safe_float(active_edge) * 10000.0 + 10.0) / 40.0, 0.0, 1.0)) if np.isfinite(_safe_float(active_edge)) else 0.0
+    conf_norm = float(np.clip(_safe_float(conf) / 100.0, 0.0, 1.0)) if np.isfinite(conf) else 0.0
+    risk_norm = {"low": 1.0, "medium": 0.75, "high": 0.45, "extreme": 0.1}.get(str(risk_level).lower(), 0.4)
+    signal_score = float(np.clip(100.0 * (0.35 * (strength_score / 100.0) + 0.30 * edge_norm + 0.20 * conf_norm + 0.15 * risk_norm), 0.0, 100.0))
     return {
         "action": action,
         "action_cn": {"LONG": _t("做多", "Long"), "SHORT": _t("做空", "Short"), "WAIT": _t("观望", "Wait")}.get(action, _t("观望", "Wait")),
@@ -4888,6 +6055,9 @@ def _build_trade_decision_plan(
         "trade_status": trade_status,
         "trade_status_text": status_text_map.get(trade_status, trade_status),
         "trade_status_note": trade_status_note,
+        "execution_state": execution_state,
+        "execution_state_text": execution_state_text,
+        "execution_state_icon": execution_state_icon,
         "signal_key": signal_key,
         "signal_time_utc": signal_time_utc,
         "valid_until": valid_until,
@@ -4895,6 +6065,7 @@ def _build_trade_decision_plan(
         "price_timestamp_market": price_timestamp_market,
         "price_timestamp_utc": price_timestamp_utc,
         "failed_checks": failed_checks,
+        "gate_reason_codes": gate_reason_codes,
         "horizon_label": horizon_label,
         "risk_level": risk_level,
         "confidence_score": conf,
@@ -4918,7 +6089,12 @@ def _build_trade_decision_plan(
         "checks_total": checks_total,
         "signal_strength": strength,
         "signal_strength_text": _signal_strength_human_text(strength),
+        "signal_strength_score": strength_score,
+        "signal_score": signal_score,
         "policy_reason": str(row.get("policy_reason", "-")),
+        "news_risk_level": news_risk_level,
+        "news_gate_pass": news_gate_pass,
+        "news_event_risk": news_event_flag,
     }
 
 
@@ -4929,70 +6105,143 @@ def _render_trade_decision_summary(
     backtest_policy_row: pd.Series | None = None,
 ) -> None:
     st.markdown(f"## {_t('交易决策卡（3秒结论）', 'Decision Card (3-second view)')}")
-    action = str(plan.get("action", "WAIT"))
+
+    action = str(plan.get("action", "WAIT")).upper()
     action_cn = str(plan.get("action_cn", _t("观望", "Wait")))
     action_display = f"{action} / {action_cn}" if _ui_lang() == "zh" else action
-    color = {"LONG": "#22c55e", "SHORT": "#ef4444", "WAIT": "#f59e0b"}.get(action, "#94a3b8")
+    action_color = _action_color(action)
+
+    exec_code = str(plan.get("execution_state", _execution_state_from_plan(plan))).upper()
+    exec_text = str(plan.get("execution_state_text", _execution_state_text(exec_code)))
+    exec_icon = str(plan.get("execution_state_icon", _execution_state_icon(exec_code)))
+    exec_color = _execution_state_color(exec_code)
+    status_note = str(plan.get("trade_status_note", "-"))
+
+    supports, blocker = _extract_reason_lines(plan)
+    side = str(plan.get("plan_side", "LONG")).upper()
+    q50 = _safe_float(plan.get("q50"))
+    q50_signed = q50 if side == "LONG" else -q50
+    edge_active = _safe_float(plan.get("edge_long")) if side == "LONG" else _safe_float(plan.get("edge_short"))
+    hit_est = _estimate_plan_hit_metrics(plan)
+    risk_pct = _safe_float(hit_est.get("risk_pct"))
+
+    win_hint = _safe_float(hit_est.get("p_tp1_before_sl"))
+    if backtest_policy_row is not None and np.isfinite(_safe_float(backtest_policy_row.get("win_rate"))):
+        win_hint = _safe_float(backtest_policy_row.get("win_rate"))
+
+    if bool(plan.get("entry_touched", False)):
+        entry_state = _t("已触发 ✅", "Touched ✅")
+    else:
+        entry_state = _t(
+            f"距入场 {_fmt_pct_or_bps(plan.get('entry_gap_pct'))}",
+            f"Distance to entry {_fmt_pct_or_bps(plan.get('entry_gap_pct'))}",
+        )
+    touched_at = str(plan.get("entry_touched_at", "") or "").strip()
+    if touched_at:
+        entry_state = f"{entry_state} | {_t('首次触发', 'First touch')}: {touched_at}"
+
+    news_risk = _risk_text(str(plan.get("news_risk_level", "low")))
+    signal_score = _safe_float(plan.get("signal_score"))
+    score_text = _format_float(signal_score, 1) if np.isfinite(signal_score) else "-"
+    strength_text = str(plan.get("signal_strength_text", "-"))
+    if exec_code == "BLOCKED":
+        strength_text = (
+            strength_text.replace("可执行", "受阻断")
+            .replace("Directional edge", "Directional edge (blocked)")
+            .replace("Executable", "Blocked")
+        )
+
+    gate_reasons = [str(x) for x in plan.get("gate_reason_codes", []) if str(x).strip()]
+    gate_reason_text = " | ".join(_reason_token_text(x) for x in gate_reasons) if gate_reasons else "-"
+
+    reliability_line = "-"
+    if reliability_summary:
+        reliability_line = _t(
+            f"{_reliability_level_brief(reliability_summary)}（Brier {_format_float(reliability_summary.get('brier'), 3)}，Coverage {_format_change_pct(reliability_summary.get('coverage')).replace('+', '')}）",
+            f"{_reliability_level_brief(reliability_summary)} (Brier {_format_float(reliability_summary.get('brier'), 3)}, Coverage {_format_change_pct(reliability_summary.get('coverage')).replace('+', '')})",
+        )
+
     st.markdown(
-        (
-            "<div style='padding:12px 14px;border:1px solid rgba(148,163,184,.25);border-radius:12px;'>"
-            f"<div style='font-size:13px;color:#94a3b8'>{_t('最终建议', 'Final Suggestion')}</div>"
-            f"<div style='font-size:42px;font-weight:800;color:{color};line-height:1.1'>{action_display}</div>"
-            f"<div style='margin-top:6px;color:#cbd5e1'>{plan.get('action_reason','-')}</div>"
-            "</div>"
-        ),
+        f"""
+<style>
+.decision-sticky {{
+  position: sticky;
+  top: 0.25rem;
+  z-index: 960;
+  border: 1px solid rgba(148,163,184,.28);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: rgba(2, 6, 23, .93);
+  backdrop-filter: blur(4px);
+}}
+.decision-grid {{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 8px 16px;
+}}
+.decision-k {{font-size: 12px; color: #94a3b8;}}
+.decision-v {{font-size: 20px; font-weight: 800; color: #e2e8f0; line-height: 1.2; word-break: break-word;}}
+.decision-v-big {{font-size: 42px; font-weight: 900; line-height: 1.1; word-break: break-word;}}
+.decision-r {{font-size: 13px; color: #cbd5e1; margin-top: 4px; word-break: break-word;}}
+</style>
+<div class="decision-sticky">
+  <div class="decision-grid">
+    <div>
+      <div class="decision-k">{_html_escape(_t("最终动作", "Final Action"))}</div>
+      <div class="decision-v-big" style="color:{action_color}">{_html_escape(action_display)}</div>
+    </div>
+    <div>
+      <div class="decision-k">{_html_escape(_t("执行状态", "Execution Status"))}</div>
+      <div class="decision-v" style="color:{exec_color}">{_html_escape(exec_icon)} {_html_escape(exec_text)}</div>
+      <div class="decision-r">{_html_escape(status_note)}</div>
+    </div>
+    <div>
+      <div class="decision-k">{_html_escape(_t("信号强度 / 评分", "Signal Strength / Score"))}</div>
+      <div class="decision-v">{_html_escape(strength_text)} / {_html_escape(score_text)}</div>
+      <div class="decision-r">{_html_escape(_t("新闻风险", "News Risk"))}: {_html_escape(news_risk)}</div>
+    </div>
+    <div>
+      <div class="decision-k">{_html_escape(_t("推荐入场（固定）", "Entry (fixed snapshot)"))}</div>
+      <div class="decision-v">{_html_escape(_format_price(plan.get("entry")))}</div>
+      <div class="decision-r">{_html_escape(entry_state)}</div>
+    </div>
+    <div>
+      <div class="decision-k">{_html_escape(_t("止损 / 止盈", "SL / TP"))}</div>
+      <div class="decision-v">{_html_escape(_format_price(plan.get("stop_loss")))} / {_html_escape(_format_price(plan.get("take_profit")))}</div>
+      <div class="decision-r">TP2: {_html_escape(_format_price(plan.get("take_profit_2")))}</div>
+    </div>
+    <div>
+      <div class="decision-k">{_html_escape(_t("RR / 命中率", "RR / Hit Rate"))}</div>
+      <div class="decision-v">{_html_escape(_format_float(plan.get("rr"), 2))} / {_html_escape(_format_change_pct(win_hint).replace('+',''))}</div>
+      <div class="decision-r">edge_after_cost: {_html_escape(_fmt_pct_or_bps(edge_active))}</div>
+    </div>
+  </div>
+  <div class="decision-r">✅ {_html_escape(supports[0])} | ✅ {_html_escape(supports[1])} | ❌ {_html_escape(blocker)}</div>
+</div>
+""",
         unsafe_allow_html=True,
     )
+
+    st.markdown(f"### {_t('Trade Plan（净收益口径）', 'Trade Plan (Net Basis)')}")
+    t1, t2, t3, t4 = st.columns(4)
+    t1.metric(_t("预期收益(q50)", "Expected Return (q50)"), _fmt_pct_or_bps(q50_signed))
+    t2.metric(_t("风险（到SL）", "Risk (to SL)"), _fmt_pct_or_bps(risk_pct, signed=False))
+    t3.metric("RR", _format_float(plan.get("rr"), 2))
+    t4.metric(_t("净Edge(扣成本后)", "Net Edge (after cost)"), _fmt_pct_or_bps(edge_active))
+
+    h1, h2, h3 = st.columns(3)
+    h1.metric(_t("TP1先触发概率", "TP1-first Probability"), _format_change_pct(hit_est.get("p_tp1_before_sl")).replace("+", ""))
+    h2.metric(_t("TP2先触发概率", "TP2-first Probability"), _format_change_pct(hit_est.get("p_tp2_before_sl")).replace("+", ""))
+    h3.metric(_t("期望值(EV, TP1口径)", "Expected Value (EV, TP1 basis)"), _fmt_pct_or_bps(hit_est.get("expected_value_tp1")))
+
     st.caption(
         _t(
-            f"当前满足 {int(plan.get('checks_passed', 0))}/{int(plan.get('checks_total', 0))} 条开仓条件 -> 建议 {str(plan.get('action_cn', _t('观望', 'Wait')))}（{str(plan.get('risk_profile', _t('标准', 'Standard')))}）",
-            f"Now passing {int(plan.get('checks_passed', 0))}/{int(plan.get('checks_total', 0))} entry checks -> Suggested action: {str(plan.get('action', 'WAIT'))}",
-        )
-    )
-
-    status = str(plan.get("trade_status", "WAIT_RULES"))
-    status_text = str(plan.get("trade_status_text", status))
-    status_note = str(plan.get("trade_status_note", "-"))
-    st.info(f"{_t('交易状态', 'Trade Status')}: {status_text} | {status_note}")
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(_t("推荐入场", "Suggested Entry"), _format_price(plan.get("entry")))
-    c2.metric(_t("止损", "Stop Loss"), _format_price(plan.get("stop_loss")))
-    c3.metric(_t("止盈(TP1)", "Take Profit (TP1)"), _format_price(plan.get("take_profit")))
-    c4.metric(_t("盈亏比 R:R", "Risk/Reward R:R"), _format_float(plan.get("rr"), 2))
-    c5, c6, c7, c8 = st.columns(4)
-    c5.metric(_t("持仓周期", "Holding Horizon"), str(plan.get("horizon_label", "4h")))
-    c6.metric(_t("风险等级", "Risk Level"), _risk_text(str(plan.get("risk_level", "-"))))
-    c7.metric(_t("信号强度", "Signal Strength"), str(plan.get("signal_strength_text", "-")))
-    c8.metric(_t("模型可信度", "Model Reliability"), _reliability_level_text(reliability_summary))
-    c9, c10, c11, c12 = st.columns(4)
-    c9.metric(_t("止盈(TP2)", "Take Profit (TP2)"), _format_price(plan.get("take_profit_2")))
-    c10.metric("Long Edge", _format_change_pct(plan.get("edge_long")))
-    c11.metric("Short Edge", _format_change_pct(plan.get("edge_short")))
-    active_edge_risk = (
-        plan.get("edge_risk_long")
-        if str(plan.get("action", "WAIT")) == "LONG"
-        else (plan.get("edge_risk_short") if str(plan.get("action", "WAIT")) == "SHORT" else float("nan"))
-    )
-    c12.metric("Edge/Risk", _format_float(active_edge_risk, 3))
-    c13, c14, c15, c16 = st.columns(4)
-    c13.metric(_t("距入场(%)", "Entry Gap (%)"), _format_change_pct(plan.get("entry_gap_pct")))
-    c14.metric(
-        _t("到价触发", "Entry Touched"),
-        _t("已触发", "Touched") if bool(plan.get("entry_touched", False)) else _t("未触发", "Not yet"),
-    )
-    c15.metric(
-        _t("首次触发时间", "First Touch Time"),
-        str(plan.get("entry_touched_at", "-")) if str(plan.get("entry_touched_at", "")).strip() else "-",
-    )
-    c16.metric(_t("预案方向", "Plan Side"), str(plan.get("plan_side_text", "-")))
-    st.caption(
-        _t(
-            f"P(up): {_format_change_pct(plan.get('p_up')).replace('+','')} | "
-            f"P(down): {_format_change_pct(plan.get('p_down')).replace('+','')} | "
-            f"成本口径: 双边 {float(plan.get('cost_bps', 0.0)):.1f} bps（开+平）",
-            f"P(up): {_format_change_pct(plan.get('p_up')).replace('+','')} | "
-            f"P(down): {_format_change_pct(plan.get('p_down')).replace('+','')} | "
+            f"P(up): {_format_change_pct(plan.get('p_up')).replace('+', '')} | "
+            f"P(down): {_format_change_pct(plan.get('p_down')).replace('+', '')} | "
+            f"成本口径：双边 {float(plan.get('cost_bps', 0.0)):.1f} bps（开+平）",
+            f"P(up): {_format_change_pct(plan.get('p_up')).replace('+', '')} | "
+            f"P(down): {_format_change_pct(plan.get('p_down')).replace('+', '')} | "
             f"Cost basis: round-trip {float(plan.get('cost_bps', 0.0)):.1f} bps (open+close)",
         )
     )
@@ -5004,24 +6253,63 @@ def _render_trade_decision_summary(
             f"Signal time (UTC): {plan.get('signal_time_utc', '-')} | Valid until: {plan.get('valid_until', '-')}",
         )
     )
-    if backtest_policy_row is not None:
-        b1, b2, b3, b4, b5, b6 = st.columns(6)
-        b1.metric(_t("近回测胜率", "Backtest Win Rate"), _format_change_pct(backtest_policy_row.get("win_rate")).replace("+", ""))
-        b2.metric("Profit Factor", _format_float(backtest_policy_row.get("profit_factor"), 2))
-        b3.metric("Avg Win/Loss", _format_float(backtest_policy_row.get("avg_win_loss_ratio"), 2))
-        b4.metric(_t("最大回撤", "Max Drawdown"), _format_change_pct(backtest_policy_row.get("max_drawdown")))
-        b5.metric(_t("夏普", "Sharpe"), _format_float(backtest_policy_row.get("sharpe"), 2))
-        b6.metric(_t("交易次数", "Trades"), f"{int(_safe_float(backtest_policy_row.get('trades_count')))}")
-        st.caption(
+    st.caption(
+        _t(
+            f"模型可信度: {reliability_line}",
+            f"Model reliability: {reliability_line}",
+        )
+    )
+
+    if gate_reasons:
+        st.warning(_t("Gate 阻断原因: ", "Gate blocked reasons: ") + gate_reason_text)
+        if any(str(x).strip().lower() == "gate:no_go" for x in gate_reasons):
+            failed_rules = _go_live_failed_rules_summary(max_items=3)
+            st.caption(
+                _t(
+                    "当前为发布门禁拦截（NO GO）。这不是到价触发故障；若需恢复执行，请先在发布检查中把门禁状态切回 GO。",
+                    "Current state is blocked by go-live gate (NO GO). This is not an entry-touch failure; switch gate status back to GO in release checks to resume execution.",
+                )
+            )
+            if failed_rules:
+                st.caption(
+                    _t("门禁失败样例: ", "Gate failed samples: ") + " | ".join(failed_rules)
+                )
+
+    if action == "WAIT":
+        st.info(
             _t(
-                f"Expectancy: {_format_float(backtest_policy_row.get('expectancy'), 4)} | "
-                f"总收益: {_format_change_pct(backtest_policy_row.get('total_return'))} | "
-                f"波动率: {_format_float(backtest_policy_row.get('volatility'), 4)}",
-                f"Expectancy: {_format_float(backtest_policy_row.get('expectancy'), 4)} | "
-                f"Total Return: {_format_change_pct(backtest_policy_row.get('total_return'))} | "
-                f"Volatility: {_format_float(backtest_policy_row.get('volatility'), 4)}",
+                "当前是 WAIT / 观望。下方 Entry / SL / TP / RR 是灰色预案，仅用于风控参考；规则全部通过后才可执行。",
+                "Current action is WAIT. Entry/SL/TP/RR below is a plan preview for risk control; execution starts only after all rules pass.",
             )
         )
+
+    key_prefix = f"ps_{str(plan.get('signal_key', 'default'))[:10]}"
+    _render_position_sizing_widget(plan, key_prefix=key_prefix)
+
+    with st.expander(_t("详细指标（专业模式）", "Detailed Metrics (Pro)"), expanded=False):
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric(_t("持仓周期", "Holding Horizon"), str(plan.get("horizon_label", "4h")))
+        d2.metric(_t("风险等级", "Risk Level"), _risk_text(str(plan.get("risk_level", "-"))))
+        d3.metric("Long Edge", _format_change_pct(plan.get("edge_long")))
+        d4.metric("Short Edge", _format_change_pct(plan.get("edge_short")))
+
+        d5, d6, d7, d8 = st.columns(4)
+        d5.metric(_t("距入场(%)", "Entry Gap (%)"), _format_change_pct(plan.get("entry_gap_pct")))
+        d6.metric(
+            _t("到价触发", "Entry Touched"),
+            _t("已触发", "Touched") if bool(plan.get("entry_touched", False)) else _t("未触发", "Not yet"),
+        )
+        d7.metric(_t("首次触发时间", "First Touch Time"), str(plan.get("entry_touched_at", "-")) or "-")
+        d8.metric(_t("预案方向", "Plan Side"), str(plan.get("plan_side_text", "-")))
+
+        if backtest_policy_row is not None:
+            b1, b2, b3, b4, b5, b6 = st.columns(6)
+            b1.metric(_t("近回测胜率", "Backtest Win Rate"), _format_change_pct(backtest_policy_row.get("win_rate")).replace("+", ""))
+            b2.metric("Profit Factor", _format_float(backtest_policy_row.get("profit_factor"), 2))
+            b3.metric("Avg Win/Loss", _format_float(backtest_policy_row.get("avg_win_loss_ratio"), 2))
+            b4.metric(_t("最大回撤", "Max Drawdown"), _format_change_pct(backtest_policy_row.get("max_drawdown")))
+            b5.metric(_t("夏普", "Sharpe"), _format_float(backtest_policy_row.get("sharpe"), 2))
+            b6.metric(_t("交易次数", "Trades"), f"{int(_safe_float(backtest_policy_row.get('trades_count')))}")
 
 
 def _render_rule_checklist(plan: Dict[str, object]) -> None:
@@ -5270,7 +6558,15 @@ def _render_decision_packet_and_execution(
     p3.metric("TP1 / SL", f"{_format_price(packet.get('tp1'))} / {_format_price(packet.get('sl'))}")
     p4.metric("RR", _format_float(packet.get("rr"), 2))
     p5, p6, p7 = st.columns(3)
-    p5.metric(_t("交易状态", "Trade Status"), str(packet.get("trade_status", "-")))
+    packet_status = str(packet.get("trade_status", "-")).upper()
+    packet_status_text = {
+        "READY": _t("可执行", "Ready"),
+        "WAIT_ENTRY": _t("等待到价", "Waiting Entry"),
+        "WAIT_RULES": _t("规则未通过", "Rules Not Passed"),
+        "BLOCKED": _t("被风控拦截", "Risk Blocked"),
+        "EXPIRED": _t("已过期", "Expired"),
+    }.get(packet_status, str(packet.get("trade_status", "-")))
+    p5.metric(_t("交易状态", "Trade Status"), packet_status_text)
     p6.metric(_t("距入场(%)", "Entry Gap (%)"), _format_change_pct(packet.get("entry_gap_pct")))
     p7.metric(
         _t("到价触发", "Entry Touched"),
@@ -5282,8 +6578,26 @@ def _render_decision_packet_and_execution(
         f"gate={packet.get('gate_status','PASS')}"
     )
     blocked = packet.get("blocked_reason", [])
-    if isinstance(blocked, list) and blocked:
-        st.warning(_t("Gate 阻断原因: ", "Gate blocked reasons: ") + " | ".join(str(x) for x in blocked))
+    blocked_tokens: List[str] = []
+    if isinstance(blocked, list):
+        blocked_tokens = [str(x).strip() for x in blocked if str(x).strip()]
+    elif isinstance(blocked, str) and blocked.strip():
+        blocked_tokens = [x.strip() for x in re.split(r"[|,;]", blocked) if x.strip()]
+    if blocked_tokens:
+        pretty_blocked = " | ".join(_reason_token_text(x) for x in blocked_tokens)
+        st.warning(_t("Gate 阻断原因: ", "Gate blocked reasons: ") + pretty_blocked)
+        if any(str(x).strip().lower() == "gate:no_go" for x in blocked_tokens):
+            failed_rules = _go_live_failed_rules_summary(max_items=3)
+            st.caption(
+                _t(
+                    "说明：`gate:no_go` 表示发布门禁未通过（例如回测/监控/风控未达标），当前只允许观望，不允许执行开仓。",
+                    "Note: `gate:no_go` means go-live gate failed (e.g., backtest/monitoring/risk checks not passed), so execution is blocked.",
+                )
+            )
+            if failed_rules:
+                st.caption(
+                    _t("门禁失败样例: ", "Gate failed samples: ") + " | ".join(failed_rules)
+                )
 
     btn1, btn2 = st.columns(2)
     if btn1.button(_t("保存 DecisionPacket", "Save DecisionPacket"), key=f"save_dp_{key_suffix}", use_container_width=True):
@@ -6329,6 +7643,12 @@ def _render_cn_page() -> None:
 
     st.markdown("---")
     _render_snapshot_result(snap, title_prefix=_t("A股", "CN A-share"), trade_plan=trade_plan if trade_plan else None)
+    _render_symbol_news_and_earnings(
+        market="cn_equity",
+        symbol=str(row.get("symbol", "")),
+        display_name=str(row.get("name", row.get("display", row.get("symbol", "")))),
+        snapshot_df=snap_for_plan if not snap_for_plan.empty else snap,
+    )
     if not snap_for_plan.empty:
         with st.expander(_t("因子贡献摘要（Top 3 正/负）", "Factor Contribution Summary (Top 3 +/-)"), expanded=False):
             _render_factor_top_contributions(snap_for_plan.iloc[0])
@@ -6440,6 +7760,12 @@ def _render_us_page() -> None:
 
     st.markdown("---")
     _render_snapshot_result(snap, title_prefix=_t("美股", "US Equity"), trade_plan=trade_plan if trade_plan else None)
+    _render_symbol_news_and_earnings(
+        market="us_equity",
+        symbol=str(row.get("symbol", "")),
+        display_name=str(row.get("name", row.get("display", row.get("symbol", "")))),
+        snapshot_df=snap_for_plan if not snap_for_plan.empty else snap,
+    )
     if not snap_for_plan.empty:
         with st.expander(_t("因子贡献摘要（Top 3 正/负）", "Factor Contribution Summary (Top 3 +/-)"), expanded=False):
             _render_factor_top_contributions(snap_for_plan.iloc[0])
@@ -8114,6 +9440,13 @@ div[data-testid="stMetricValue"] {
   overflow: visible !important;
   text-overflow: clip !important;
 }
+div[data-testid="stMetricValue"],
+div[data-testid="stMetricValue"] * {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  word-break: break-word !important;
+}
 </style>
 """,
         unsafe_allow_html=True,
@@ -8125,9 +9458,65 @@ div[data-testid="stMetricValue"] {
         index=0 if _ui_lang() == "zh" else 1,
     )
     st.session_state["ui_lang"] = "zh" if lang_pick == "中文" else "en"
+    # Safe state sync for demo/live gate mode:
+    # avoid writing the same widget key after instantiation in the same run.
+    if "debug_ignore_no_go_pending" in st.session_state:
+        pending_mode = bool(st.session_state.pop("debug_ignore_no_go_pending"))
+        st.session_state["debug_ignore_no_go"] = pending_mode
+        st.session_state["debug_ignore_no_go_ui"] = pending_mode
+
+    if "debug_ignore_no_go_ui" not in st.session_state:
+        st.session_state["debug_ignore_no_go_ui"] = bool(st.session_state.get("debug_ignore_no_go", False))
+
+    def _sync_demo_mode_toggle() -> None:
+        st.session_state["debug_ignore_no_go"] = bool(st.session_state.get("debug_ignore_no_go_ui", False))
+
+    st.sidebar.toggle(
+        _t("演示模式（忽略风控拦截）", "Demo mode (ignore gate block)"),
+        key="debug_ignore_no_go_ui",
+        on_change=_sync_demo_mode_toggle,
+        help=_t(
+            "开启后：页面可继续执行下单流程（仅演示）。关闭后：按真实风控规则拦截。",
+            "ON: allows execution flow for demo. OFF: uses real risk gate.",
+        ),
+    )
 
     if st.button(_t("清理缓存并刷新", "Clear cache and reload"), use_container_width=False):
         st.cache_data.clear()
+        try:
+            p = _entry_touch_state_path(Path("data/processed"))
+            if p.exists():
+                p.unlink()
+        except Exception:
+            pass
+        for k in ["session_refresh_token", "index_session_refresh_token"]:
+            if k in st.session_state:
+                st.session_state[k] = int(st.session_state.get(k, 0)) + 1
+        st.rerun()
+
+    # Visible debug gate control in main area (in addition to sidebar toggle),
+    # so users can quickly verify whether NO GO gate is the blocker.
+    gate_debug_on = bool(st.session_state.get("debug_ignore_no_go", False))
+    if gate_debug_on:
+        st.success(
+            _t(
+                "当前模式：演示模式（风控拦截已忽略）",
+                "Mode: Demo (gate block ignored)",
+            )
+        )
+    else:
+        st.warning(
+            _t(
+                "当前模式：真实模式（会按风控拦截）",
+                "Mode: Live-safe (risk gate enforced)",
+            )
+        )
+    g1, g2 = st.columns(2)
+    if g1.button(_t("切换为演示模式（继续联调）", "Switch to Demo mode"), key="btn_enable_debug_gate", use_container_width=True):
+        st.session_state["debug_ignore_no_go_pending"] = True
+        st.rerun()
+    if g2.button(_t("切换为真实模式（严格风控）", "Switch to Live-safe mode"), key="btn_disable_debug_gate", use_container_width=True):
+        st.session_state["debug_ignore_no_go_pending"] = False
         st.rerun()
 
     processed_dir = Path("data/processed")
