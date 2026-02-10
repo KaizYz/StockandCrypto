@@ -31,6 +31,14 @@
       "tier": "core_market",
       "group_key": "core_market::cn_core",
       "run_index": 4
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_market_cn_core_005",
+      "tier": "core_market",
+      "group_key": "core_market::cn_core",
+      "run_index": 5
     }
   ]
 }
