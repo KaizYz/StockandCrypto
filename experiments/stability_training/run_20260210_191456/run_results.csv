@@ -14,3 +14,6 @@ core_symbol_BTCUSDT_012,core_symbol,core_symbol::BTCUSDT,12,50,229,crypto,BTCUSD
 core_symbol_BTCUSDT_013,core_symbol,core_symbol::BTCUSDT,13,50,246,crypto,BTCUSDT,binance,success,,0.5207588144739123,,,,,
 core_symbol_BTCUSDT_014,core_symbol,core_symbol::BTCUSDT,14,50,263,crypto,BTCUSDT,binance,success,,0.5309759078927339,,,,,
 core_symbol_BTCUSDT_015,core_symbol,core_symbol::BTCUSDT,15,50,280,crypto,BTCUSDT,binance,success,,0.5299044465587257,,,,,
+core_symbol_BTCUSDT_016,core_symbol,core_symbol::BTCUSDT,16,50,297,crypto,BTCUSDT,binance,failed,FileNotFoundError: [Errno 2] No such file or directory: 'experiments\\stability_training\\run_20260210_191456\\runs\\core_symbol_BTCUSDT_016\\logs\\src_models_train.log',,,,,,
+core_symbol_BTCUSDT_017,core_symbol,core_symbol::BTCUSDT,17,50,314,crypto,BTCUSDT,binance,success,,0.5155755174081618,,,,,
+core_symbol_BTCUSDT_018,core_symbol,core_symbol::BTCUSDT,18,50,331,crypto,BTCUSDT,binance,success,,0.5429151365911942,,,,,
