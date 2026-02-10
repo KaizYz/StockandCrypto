@@ -1,2 +1,4 @@
 task_id,tier,group_key,run_index,total_runs,seed,market,symbol,provider,status,error,auc,brier,coverage,signal_flip_rate,net_return,max_drawdown
 core_symbol_BTCUSDT_001,core_symbol,core_symbol::BTCUSDT,1,50,42,crypto,BTCUSDT,binance,success,,0.5509955748889843,,,,,
+core_symbol_BTCUSDT_002,core_symbol,core_symbol::BTCUSDT,2,50,59,crypto,BTCUSDT,binance,success,,0.5388624605409299,,,,,
+core_symbol_BTCUSDT_003,core_symbol,core_symbol::BTCUSDT,3,50,76,crypto,BTCUSDT,binance,failed,FileNotFoundError: [Errno 2] No such file or directory: 'experiments\\stability_training\\run_20260210_191456\\runs\\core_symbol_BTCUSDT_003\\logs\\src_models_train.log',,,,,,
