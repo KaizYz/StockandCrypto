@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import shutil
 import subprocess
@@ -53,6 +54,48 @@ class TrainingTask:
     provider: str = ""
     pools: List[str] = field(default_factory=list)
     pipeline: List[str] = field(default_factory=list)
+
+
+def _parse_list_like(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, tuple):
+        return [str(x) for x in value]
+    text = str(value or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = ast.literal_eval(text)
+        if isinstance(parsed, (list, tuple)):
+            return [str(x) for x in parsed]
+    except Exception:
+        pass
+    if "," in text:
+        return [x.strip() for x in text.split(",") if x.strip()]
+    return [text]
+
+
+def _task_from_record(rec: Dict[str, Any]) -> TrainingTask:
+    return TrainingTask(
+        task_id=str(rec.get("task_id", "")),
+        tier=str(rec.get("tier", "")),
+        group_key=str(rec.get("group_key", "")),
+        run_index=int(rec.get("run_index", 0) or 0),
+        total_runs=int(rec.get("total_runs", 0) or 0),
+        seed=int(rec.get("seed", 0) or 0),
+        market=str(rec.get("market", "")),
+        symbol=str(rec.get("symbol", "")),
+        provider=str(rec.get("provider", "")),
+        pools=_parse_list_like(rec.get("pools", [])),
+        pipeline=_parse_list_like(rec.get("pipeline", [])),
+    )
+
+
+def _load_tasks_from_seed_plan(seed_plan_path: Path) -> List[TrainingTask]:
+    if not seed_plan_path.exists():
+        raise FileNotFoundError(f"seed_plan.csv not found: {seed_plan_path}")
+    plan_df = pd.read_csv(seed_plan_path)
+    return [_task_from_record(rec) for rec in plan_df.to_dict(orient="records")]
 
 
 def _default_provider_for_market(market: str) -> str:
@@ -571,6 +614,7 @@ def run_stability_batch(
     plan_only: bool = False,
     max_tasks: int = 0,
     tiers: List[str] | None = None,
+    resume_run_dir: str = "",
 ) -> None:
     cfg = load_config(config_path)
     st_cfg = cfg.get("training_stability", {})
@@ -578,36 +622,88 @@ def run_stability_batch(
         raise RuntimeError("training_stability.enabled=false; enable it in config first.")
 
     selected_tiers = tiers or ["full_symbol", "core_market", "core_symbol"]
-    tasks = _build_tasks(cfg, selected_tiers)
-    if max_tasks > 0:
-        tasks = tasks[: int(max_tasks)]
+    if resume_run_dir:
+        out_root = ensure_dir(Path(resume_run_dir))
+        tasks = _load_tasks_from_seed_plan(out_root / "seed_plan.csv")
+        tasks = [t for t in tasks if t.tier in set(selected_tiers)]
+        if max_tasks > 0:
+            tasks = tasks[: int(max_tasks)]
+        if plan_only:
+            print(f"[OK] Resume plan checked only -> {out_root}")
+            return
+    else:
+        tasks = _build_tasks(cfg, selected_tiers)
+        if max_tasks > 0:
+            tasks = tasks[: int(max_tasks)]
+        out_root = ensure_dir(Path(st_cfg.get("output_dir", "experiments/stability_training")) / f"run_{_utc_now()}")
+        plan_df = pd.DataFrame([asdict(t) for t in tasks])
+        write_csv(plan_df, out_root / "seed_plan.csv")
+        save_json({"rows": plan_df.to_dict(orient="records")}, out_root / "seed_plan.json")
 
-    out_root = ensure_dir(Path(st_cfg.get("output_dir", "experiments/stability_training")) / f"run_{_utc_now()}")
-    plan_df = pd.DataFrame([asdict(t) for t in tasks])
-    write_csv(plan_df, out_root / "seed_plan.csv")
-    save_json({"rows": plan_df.to_dict(orient="records")}, out_root / "seed_plan.json")
-
-    meta = {
-        "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
-        "config_path": str(config_path),
-        "tiers": selected_tiers,
-        "tasks_count": int(len(tasks)),
-        "plan_only": bool(plan_only),
-    }
-    save_json(meta, out_root / "run_meta.json")
-    if plan_only:
-        print(f"[OK] Plan generated only -> {out_root}")
-        return
+        meta = {
+            "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "config_path": str(config_path),
+            "tiers": selected_tiers,
+            "tasks_count": int(len(tasks)),
+            "plan_only": bool(plan_only),
+        }
+        save_json(meta, out_root / "run_meta.json")
+        if plan_only:
+            print(f"[OK] Plan generated only -> {out_root}")
+            return
 
     processed_dir = Path(cfg.get("paths", {}).get("processed_data_dir", "data/processed"))
     run_rows: List[Dict[str, Any]] = []
     stop_rows: List[Dict[str, Any]] = []
     group_history: Dict[str, List[Dict[str, Any]]] = {}
     stopped_groups: set[str] = set()
+    existing_results_path = out_root / "run_results.csv"
+    existing_stop_path = out_root / "early_stop_checks.csv"
+    if existing_results_path.exists():
+        try:
+            run_rows = pd.read_csv(existing_results_path).to_dict(orient="records")
+        except Exception:
+            run_rows = []
+    if existing_stop_path.exists():
+        try:
+            stop_rows = pd.read_csv(existing_stop_path).to_dict(orient="records")
+            stopped_groups = {
+                str(r.get("group_key", ""))
+                for r in stop_rows
+                if str(r.get("should_stop", "")).strip().lower() in {"1", "true", "yes"}
+            }
+        except Exception:
+            stop_rows = []
+            stopped_groups = set()
+
+    done_task_ids = {
+        str(r.get("task_id", ""))
+        for r in run_rows
+        if str(r.get("task_id", "")).strip()
+        and str(r.get("status", "")).strip().lower() in {"success", "failed", "skipped_early_stop"}
+    }
+    for r in run_rows:
+        if str(r.get("status", "")).strip().lower() != "success":
+            continue
+        gk = str(r.get("group_key", ""))
+        if not gk:
+            continue
+        group_history.setdefault(gk, []).append(
+            {
+                "auc": _safe_float(r.get("auc")),
+                "brier": _safe_float(r.get("brier")),
+                "coverage": _safe_float(r.get("coverage")),
+                "signal_flip_rate": _safe_float(r.get("signal_flip_rate")),
+                "net_return": _safe_float(r.get("net_return")),
+                "max_drawdown": _safe_float(r.get("max_drawdown")),
+            }
+        )
     run_profile_cfg = st_cfg.get("run_profile", {})
     stop_cfg = st_cfg.get("stop_criteria", {})
 
     for task in tasks:
+        if task.task_id in done_task_ids:
+            continue
         run_dir = ensure_dir(out_root / "runs" / task.task_id)
         run_record: Dict[str, Any] = {
             "task_id": task.task_id,
@@ -664,6 +760,7 @@ def run_stability_batch(
             run_record["error"] = f"{type(exc).__name__}: {exc}"
 
         run_rows.append(run_record)
+        done_task_ids.add(task.task_id)
         write_csv(pd.DataFrame(run_rows), out_root / "run_results.csv")
         save_json({"rows": run_rows}, out_root / "run_results.json")
         if stop_rows:
@@ -688,6 +785,12 @@ def main() -> None:
     )
     parser.add_argument("--plan-only", action="store_true", help="Only generate plan (no training).")
     parser.add_argument("--max-tasks", type=int, default=0, help="Limit task count for smoke tests.")
+    parser.add_argument(
+        "--resume-run-dir",
+        type=str,
+        default="",
+        help="Resume from an existing run directory (use existing seed_plan.csv + run_results.csv).",
+    )
     args = parser.parse_args()
 
     tiers = [x.strip() for x in str(args.tiers).split(",") if x.strip()]
@@ -696,6 +799,7 @@ def main() -> None:
         plan_only=bool(args.plan_only),
         max_tasks=int(args.max_tasks),
         tiers=tiers,
+        resume_run_dir=str(args.resume_run_dir or "").strip(),
     )
 
 

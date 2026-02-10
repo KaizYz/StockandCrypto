@@ -2,7 +2,8 @@ param(
   [string]$Config = "configs/config.yaml",
   [switch]$PlanOnly,
   [int]$MaxTasks = 0,
-  [string]$Tiers = "full_symbol,core_market,core_symbol"
+  [string]$Tiers = "full_symbol,core_market,core_symbol",
+  [string]$ResumeRunDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +18,9 @@ $cmd = @(
 if ($PlanOnly) {
   $cmd += "--plan-only"
 }
+if ($ResumeRunDir -and $ResumeRunDir.Trim().Length -gt 0) {
+  $cmd += @("--resume-run-dir", $ResumeRunDir.Trim())
+}
 
 Write-Host ("Running: " + ($cmd -join " ")) -ForegroundColor Cyan
 & $cmd[0] $cmd[1..($cmd.Length - 1)]
@@ -25,4 +29,3 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Stability training command completed." -ForegroundColor Green
-

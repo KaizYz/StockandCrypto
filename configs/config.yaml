@@ -55,7 +55,13 @@ labels:
   include_high_low_targets: false
 
 models:
-  mvp_backend: "lightgbm"  # lightgbm / xgboost / sklearn fallback
+  mvp_backend: "xgboost"  # lightgbm / xgboost / sklearn fallback
+  gpu:
+    enabled: true
+    fallback_to_cpu: true
+    lightgbm_device_type: "gpu"
+    xgboost_device: "cuda"
+    xgboost_tree_method: "hist"
   train_ratio: 0.8
   quantiles: [0.1, 0.5, 0.9]
   classifier:
