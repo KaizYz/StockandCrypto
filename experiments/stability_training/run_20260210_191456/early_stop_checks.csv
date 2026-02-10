@@ -8,4 +8,8 @@ False,False,core_symbol_BTCUSDT_007,core_symbol,core_symbol::BTCUSDT,7,,,,,,,,,
 False,False,core_symbol_BTCUSDT_008,core_symbol,core_symbol::BTCUSDT,8,,,,,,,,,
 False,False,core_symbol_BTCUSDT_009,core_symbol,core_symbol::BTCUSDT,9,,,,,,,,,
 False,False,core_symbol_BTCUSDT_010,core_symbol,core_symbol::BTCUSDT,10,,,,,,,,,
-True,False,core_symbol_BTCUSDT_011,core_symbol,core_symbol::BTCUSDT,11,2.8980847544455814,,,,,,False,False,True
+True,False,core_symbol_BTCUSDT_011,core_symbol,core_symbol::BTCUSDT,11,2.898084754445581,,,,,,False,False,True
+True,False,core_symbol_BTCUSDT_012,core_symbol,core_symbol::BTCUSDT,12,2.7938118105409044,,,,,,False,False,True
+True,False,core_symbol_BTCUSDT_013,core_symbol,core_symbol::BTCUSDT,13,2.919719592924975,,,,,,False,False,True
+True,False,core_symbol_BTCUSDT_014,core_symbol,core_symbol::BTCUSDT,14,2.804251513043928,,,,,,False,False,True
+True,False,core_symbol_BTCUSDT_015,core_symbol,core_symbol::BTCUSDT,15,2.222985997856173,,,,,,False,False,True
