@@ -1,0 +1,12 @@
+{
+  "rows": [
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_001",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 1
+    }
+  ]
+}

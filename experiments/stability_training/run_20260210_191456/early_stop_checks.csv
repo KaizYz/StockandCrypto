@@ -1,0 +1,2 @@
+eligible,should_stop,task_id,tier,group_key,run_index
+False,False,core_symbol_BTCUSDT_001,core_symbol,core_symbol::BTCUSDT,1

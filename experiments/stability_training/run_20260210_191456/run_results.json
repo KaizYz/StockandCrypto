@@ -1,0 +1,23 @@
+{
+  "rows": [
+    {
+      "task_id": "core_symbol_BTCUSDT_001",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 1,
+      "total_runs": 50,
+      "seed": 42,
+      "market": "crypto",
+      "symbol": "BTCUSDT",
+      "provider": "binance",
+      "status": "success",
+      "error": "",
+      "auc": 0.5509955748889843,
+      "brier": NaN,
+      "coverage": NaN,
+      "signal_flip_rate": NaN,
+      "net_return": NaN,
+      "max_drawdown": NaN
+    }
+  ]
+}

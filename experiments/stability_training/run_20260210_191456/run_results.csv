@@ -1,0 +1,2 @@
+task_id,tier,group_key,run_index,total_runs,seed,market,symbol,provider,status,error,auc,brier,coverage,signal_flip_rate,net_return,max_drawdown
+core_symbol_BTCUSDT_001,core_symbol,core_symbol::BTCUSDT,1,50,42,crypto,BTCUSDT,binance,success,,0.5509955748889843,,,,,
