@@ -1,0 +1,2 @@
+task_id,tier,group_key,run_index,total_runs,seed,market,symbol,provider,status,error,auc,brier,coverage,signal_flip_rate,net_return,max_drawdown
+core_market_cn_core_001,core_market,core_market::cn_core,1,50,42,cn_equity,cn_core,,success,,,,,,-0.0030912994569016377,-0.008550119198738326

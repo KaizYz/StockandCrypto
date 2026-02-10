@@ -1,0 +1,9 @@
+{
+  "generated_at_utc": "2026-02-10 19:47:43 UTC",
+  "config_path": "configs/config.yaml",
+  "tiers": [
+    "core_market"
+  ],
+  "tasks_count": 150,
+  "plan_only": false
+}

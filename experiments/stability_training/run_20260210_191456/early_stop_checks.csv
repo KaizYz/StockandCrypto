@@ -1,3 +1,11 @@
-eligible,should_stop,task_id,tier,group_key,run_index
-False,False,core_symbol_BTCUSDT_001,core_symbol,core_symbol::BTCUSDT,1
-False,False,core_symbol_BTCUSDT_002,core_symbol,core_symbol::BTCUSDT,2
+eligible,should_stop,task_id,tier,group_key,run_index,auc_cv_pct,brier_cv_pct,coverage_cv_pct,flip_mean,ret_delta,dd_delta,metrics_ok,flip_ok,perf_ok
+False,False,core_symbol_BTCUSDT_001,core_symbol,core_symbol::BTCUSDT,1,,,,,,,,,
+False,False,core_symbol_BTCUSDT_002,core_symbol,core_symbol::BTCUSDT,2,,,,,,,,,
+False,False,core_symbol_BTCUSDT_004,core_symbol,core_symbol::BTCUSDT,4,,,,,,,,,
+False,False,core_symbol_BTCUSDT_005,core_symbol,core_symbol::BTCUSDT,5,,,,,,,,,
+False,False,core_symbol_BTCUSDT_006,core_symbol,core_symbol::BTCUSDT,6,,,,,,,,,
+False,False,core_symbol_BTCUSDT_007,core_symbol,core_symbol::BTCUSDT,7,,,,,,,,,
+False,False,core_symbol_BTCUSDT_008,core_symbol,core_symbol::BTCUSDT,8,,,,,,,,,
+False,False,core_symbol_BTCUSDT_009,core_symbol,core_symbol::BTCUSDT,9,,,,,,,,,
+False,False,core_symbol_BTCUSDT_010,core_symbol,core_symbol::BTCUSDT,10,,,,,,,,,
+True,False,core_symbol_BTCUSDT_011,core_symbol,core_symbol::BTCUSDT,11,2.8980847544455814,,,,,,False,False,True
