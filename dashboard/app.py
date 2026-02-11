@@ -1615,9 +1615,8 @@ def _build_index_session_blocks(hourly_df: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
     grouped["p_down"] = 1.0 - grouped["p_up"]
-    grouped["session_name_cn"] = grouped["session_name"].map(
-        {"asia": "亚盘", "europe": "欧盘", "us": "美盘"}
-    )
+    # Use language-aware display name for sessions.
+    grouped["session_name_cn"] = grouped["session_name"].map(_session_display_name)
     grouped["session_hours"] = grouped["session_name"].map(
         {"asia": "08:00-15:59", "europe": "16:00-23:59", "us": "00:00-07:59"}
     )
@@ -1667,7 +1666,8 @@ def _build_index_session_bundle_cached(
     hourly = _apply_index_labels_and_prices(hourly_profile.rename(columns={"q10": "q10", "q50": "q50", "q90": "q90"}), current_price)
     hourly["hour_label"] = hourly["hour_bj"].map(lambda x: f"{int(x):02d}:00")
     hourly["session_name"] = hourly["hour_bj"].map(_session_from_hour_bj)
-    hourly["session_name_cn"] = hourly["session_name"].map({"asia": "亚盘", "europe": "欧盘", "us": "美盘"})
+    # Use language-aware display name for sessions.
+    hourly["session_name_cn"] = hourly["session_name"].map(_session_display_name)
     hourly["market"] = market
     hourly["market_type"] = "index"
     hourly["symbol"] = symbol
@@ -2522,6 +2522,32 @@ def _session_display_name(session_name: str) -> str:
     else:
         mapping = {"asia": "Asia", "europe": "Europe", "us": "US"}
     return mapping.get(key, key)
+
+
+_UNIVERSE_LABELS: Dict[str, Dict[str, Tuple[str, str]]] = {
+    "crypto": {
+        "top3": ("Crypto Top 3 (BTC/ETH/SOL)", "Crypto Top 3 (BTC/ETH/SOL)"),
+        "top100_ex_stable": ("Crypto 市值前100（剔除稳定币）", "Crypto Top 100 (ex-stablecoins)"),
+    },
+    "cn_equity": {
+        "sse_composite": ("上证指数成分股 (000001)", "SSE Composite Constituents (000001)"),
+        "csi300": ("沪深300成分股 (000300)", "CSI 300 Constituents (000300)"),
+    },
+    "us_equity": {
+        "dow30": ("道琼斯30成分股", "Dow Jones 30 Constituents"),
+        "nasdaq100": ("纳斯达克100成分股", "Nasdaq 100 Constituents"),
+        "sp500": ("标普500成分股", "S&P 500 Constituents"),
+    },
+}
+
+
+def _universe_label(market: str, pool_key: str) -> str:
+    market_map = _UNIVERSE_LABELS.get(str(market), {})
+    zh_en = market_map.get(str(pool_key))
+    if zh_en is None:
+        return str(pool_key)
+    zh, en = zh_en
+    return _t(zh, en)
 
 
 def _render_hourly_heatmap(
@@ -4049,7 +4075,8 @@ def _render_crypto_session_page() -> None:
         st.info(_t("暂无时段汇总数据。", "No session summary data available."))
     else:
         cards = _append_signal_strength_columns(blocks_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
-        cards["session_name_cn"] = cards.get("session_name_cn", cards["session_name"].map(_session_display_name))
+        # Always use language-aware session display name for UI.
+        cards["session_name_cn"] = cards["session_name"].map(_session_display_name)
         cards = cards.sort_values(
             "session_name", key=lambda s: s.map({"asia": 0, "europe": 1, "us": 2}).fillna(9)
         )
@@ -4121,7 +4148,7 @@ def _render_crypto_session_page() -> None:
                 merged["Δq50"] = merged["q50_change_pct_main"] - merged["q50_change_pct_cmp"]
                 show = merged.rename(
                     columns={
-                        "session_name_cn": "时段",
+                        "session_name_cn": _t("时段", "Session"),
                         "p_up_main": f"{mode_actual} p_up",
                         "p_up_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
                         "q50_change_pct_main": f"{mode_actual} q50",
@@ -4674,7 +4701,8 @@ def _render_index_session_page() -> None:
         st.info(_t("暂无时段汇总数据。", "No session summary data available."))
     else:
         cards = _append_signal_strength_columns(blocks_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
-        cards["session_name_cn"] = cards.get("session_name_cn", cards["session_name"].map(_session_display_name))
+        # Always use language-aware session display name for UI.
+        cards["session_name_cn"] = cards["session_name"].map(_session_display_name)
         cards = cards.sort_values(
             "session_name", key=lambda s: s.map({"asia": 0, "europe": 1, "us": 2}).fillna(9)
         )
@@ -4752,7 +4780,7 @@ def _render_index_session_page() -> None:
                 merged["Δq50"] = merged["q50_change_pct_main"] - merged["q50_change_pct_cmp"]
                 show = merged.rename(
                     columns={
-                        "session_name_cn": "时段",
+                        "session_name_cn": _t("时段", "Session"),
                         "p_up_main": f"{mode_actual} p_up",
                         "p_up_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
                         "q50_change_pct_main": f"{mode_actual} q50",
@@ -7688,7 +7716,7 @@ def _render_crypto_page(
     pool_key = st.selectbox(
         _t("选择加密池", "Select Crypto Universe"),
         options=list(catalog.keys()),
-        format_func=lambda k: catalog[k],
+        format_func=lambda k: _universe_label("crypto", k),
         key="crypto_pool_page",
     )
     uni = _load_universe_cached("crypto", pool_key)
@@ -7840,7 +7868,7 @@ def _render_cn_page() -> None:
     pool_key = st.selectbox(
         _t("选择A股股票池", "Select A-share Universe"),
         options=list(catalog.keys()),
-        format_func=lambda k: catalog[k],
+        format_func=lambda k: _universe_label("cn_equity", k),
         key="cn_pool_page",
     )
     uni = _load_universe_cached("cn_equity", pool_key)
@@ -7957,7 +7985,7 @@ def _render_us_page() -> None:
     pool_key = st.selectbox(
         _t("选择美股股票池", "Select US Universe"),
         options=list(catalog.keys()),
-        format_func=lambda k: catalog[k],
+        format_func=lambda k: _universe_label("us_equity", k),
         key="us_pool_page",
     )
     uni = _load_universe_cached("us_equity", pool_key)
