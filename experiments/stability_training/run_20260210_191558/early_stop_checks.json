@@ -2366,6 +2366,57 @@
       "tier": "core_market",
       "group_key": "core_market::us_core",
       "run_index": 47
+    },
+    {
+      "eligible": true,
+      "should_stop": false,
+      "auc_cv_pct": NaN,
+      "brier_cv_pct": 0.8115237774550574,
+      "coverage_cv_pct": 0.9914774483736393,
+      "flip_mean": 0.15264035441541898,
+      "ret_delta": 0.0,
+      "dd_delta": 0.0,
+      "metrics_ok": false,
+      "flip_ok": true,
+      "perf_ok": true,
+      "task_id": "core_market_us_core_048",
+      "tier": "core_market",
+      "group_key": "core_market::us_core",
+      "run_index": 48
+    },
+    {
+      "eligible": true,
+      "should_stop": false,
+      "auc_cv_pct": NaN,
+      "brier_cv_pct": 0.8115237774550574,
+      "coverage_cv_pct": 0.9914774483736393,
+      "flip_mean": 0.15264035441541898,
+      "ret_delta": 0.0,
+      "dd_delta": 0.0,
+      "metrics_ok": false,
+      "flip_ok": true,
+      "perf_ok": true,
+      "task_id": "core_market_us_core_049",
+      "tier": "core_market",
+      "group_key": "core_market::us_core",
+      "run_index": 49
+    },
+    {
+      "eligible": true,
+      "should_stop": false,
+      "auc_cv_pct": NaN,
+      "brier_cv_pct": 1.0777081484261068,
+      "coverage_cv_pct": 0.6605849967875027,
+      "flip_mean": 0.15264035441541898,
+      "ret_delta": 0.0,
+      "dd_delta": 0.0,
+      "metrics_ok": false,
+      "flip_ok": true,
+      "perf_ok": true,
+      "task_id": "core_market_us_core_050",
+      "tier": "core_market",
+      "group_key": "core_market::us_core",
+      "run_index": 50
     }
   ]
 }

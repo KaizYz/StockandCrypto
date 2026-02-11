@@ -143,3 +143,6 @@ True,False,core_market_us_core_044,core_market,core_market::us_core,44,,0.454166
 True,False,core_market_us_core_045,core_market,core_market::us_core,45,,0.45416601962893705,0.39071763046872904,0.20211361395537752,0.0,0.0,False,False,True
 True,False,core_market_us_core_046,core_market,core_market::us_core,46,,0.45416601962893705,0.39071763046872904,0.2021136139553775,0.0,0.0,False,False,True
 True,False,core_market_us_core_047,core_market,core_market::us_core,47,,0.8115237774550574,0.9914774483736393,0.20211361395537752,0.0,0.0,False,False,True
+True,False,core_market_us_core_048,core_market,core_market::us_core,48,,0.8115237774550574,0.9914774483736393,0.15264035441541898,0.0,0.0,False,True,True
+True,False,core_market_us_core_049,core_market,core_market::us_core,49,,0.8115237774550574,0.9914774483736393,0.15264035441541898,0.0,0.0,False,True,True
+True,False,core_market_us_core_050,core_market,core_market::us_core,50,,1.0777081484261068,0.6605849967875027,0.15264035441541898,0.0,0.0,False,True,True
