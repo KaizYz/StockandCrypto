@@ -2119,6 +2119,23 @@
       "tier": "core_market",
       "group_key": "core_market::us_core",
       "run_index": 39
+    },
+    {
+      "eligible": true,
+      "should_stop": false,
+      "auc_cv_pct": NaN,
+      "brier_cv_pct": NaN,
+      "coverage_cv_pct": NaN,
+      "flip_mean": NaN,
+      "ret_delta": -3.958565848016099e-07,
+      "dd_delta": -1.1438336123062443e-06,
+      "metrics_ok": false,
+      "flip_ok": false,
+      "perf_ok": true,
+      "task_id": "core_market_us_core_040",
+      "tier": "core_market",
+      "group_key": "core_market::us_core",
+      "run_index": 40
     }
   ]
 }
