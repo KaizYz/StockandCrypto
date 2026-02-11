@@ -1,0 +1,21 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "E:\StockandCrypto\src\models\train_stability_batch.py", line 811, in <module>
+    main()
+    ~~~~^^
+  File "E:\StockandCrypto\src\models\train_stability_batch.py", line 801, in main
+    run_stability_batch(
+    ~~~~~~~~~~~~~~~~~~~^
+        args.config,
+        ^^^^^^^^^^^^
+    ...<3 lines>...
+        resume_run_dir=str(args.resume_run_dir or "").strip(),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "E:\StockandCrypto\src\models\train_stability_batch.py", line 631, in run_stability_batch
+    tasks = _load_tasks_from_seed_plan(out_root / "seed_plan.csv")
+  File "E:\StockandCrypto\src\models\train_stability_batch.py", line 96, in _load_tasks_from_seed_plan
+    raise FileNotFoundError(f"seed_plan.csv not found: {seed_plan_path}")
+FileNotFoundError: seed_plan.csv not found: E:\StockandCrypto\experiments\stability_training\run_20260211_130558\seed_plan.csv
