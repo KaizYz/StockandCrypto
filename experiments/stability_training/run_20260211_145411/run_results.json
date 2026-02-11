@@ -2621,6 +2621,25 @@
       "signal_flip_rate": NaN,
       "net_return": -0.006052199480490112,
       "max_drawdown": -0.015775602381160637
+    },
+    {
+      "task_id": "core_market_us_core_039",
+      "tier": "core_market",
+      "group_key": "core_market::us_core",
+      "run_index": 39,
+      "total_runs": 50,
+      "seed": 688,
+      "market": "us_equity",
+      "symbol": "us_core",
+      "provider": "",
+      "status": "success",
+      "error": "",
+      "auc": NaN,
+      "brier": NaN,
+      "coverage": NaN,
+      "signal_flip_rate": NaN,
+      "net_return": -0.006051957250716937,
+      "max_drawdown": -0.015774916335206574
     }
   ]
 }
