@@ -1,0 +1,7 @@
+total_return,annualized_return,max_drawdown,sharpe,win_rate,profit_factor,num_trades,branch,horizon
+0.0,0.0,0.0,0.0,0.0,0.0,0,hourly,1
+0.0,0.0,0.0,0.0,0.0,0.0,0,hourly,2
+0.0,0.0,0.0,0.0,0.0,0.0,0,hourly,4
+-6.83034516865133e-05,-1.36685531485492e-05,-6.83034516865133e-05,-1.1275825083935649,0.0,0.0,2,daily,1
+0.0,0.0,0.0,0.0,0.0,0.0,0,daily,3
+0.0,0.0,0.0,0.0,0.0,0.0,0,daily,7

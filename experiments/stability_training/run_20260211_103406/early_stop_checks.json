@@ -1,0 +1,141 @@
+{
+  "rows": [
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_001",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 1
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_002",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 2
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_003",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 3
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_004",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 4
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_005",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 5
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_006",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 6
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_007",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 7
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_008",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 8
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_BTCUSDT_009",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 9
+    },
+    {
+      "eligible": true,
+      "should_stop": true,
+      "auc_cv_pct": 2.708717361457134,
+      "brier_cv_pct": 0.7979091039723987,
+      "coverage_cv_pct": 3.4013675455677213,
+      "flip_mean": 0.18466594231503322,
+      "ret_delta": NaN,
+      "dd_delta": NaN,
+      "metrics_ok": true,
+      "flip_ok": true,
+      "perf_ok": true,
+      "task_id": "core_symbol_BTCUSDT_010",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::BTCUSDT",
+      "run_index": 10
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_ETHUSDT_001",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::ETHUSDT",
+      "run_index": 1
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_ETHUSDT_002",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::ETHUSDT",
+      "run_index": 2
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_ETHUSDT_003",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::ETHUSDT",
+      "run_index": 3
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_ETHUSDT_004",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::ETHUSDT",
+      "run_index": 4
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_ETHUSDT_005",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::ETHUSDT",
+      "run_index": 5
+    },
+    {
+      "eligible": false,
+      "should_stop": false,
+      "task_id": "core_symbol_ETHUSDT_006",
+      "tier": "core_symbol",
+      "group_key": "core_symbol::ETHUSDT",
+      "run_index": 6
+    }
+  ]
+}

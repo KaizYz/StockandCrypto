@@ -592,6 +592,10 @@ def _evaluate_stop(
             and dd_delta <= max_dd_delta
         )
 
+    # Force plain Python scalars for JSON serialization.
+    metrics_ok = bool(metrics_ok)
+    flip_ok = bool(flip_ok)
+    perf_ok = bool(perf_ok)
     should_stop = bool(metrics_ok and flip_ok and perf_ok)
     return {
         "eligible": True,

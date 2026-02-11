@@ -1,0 +1,17 @@
+eligible,should_stop,task_id,tier,group_key,run_index,auc_cv_pct,brier_cv_pct,coverage_cv_pct,flip_mean,ret_delta,dd_delta,metrics_ok,flip_ok,perf_ok
+False,False,core_symbol_BTCUSDT_001,core_symbol,core_symbol::BTCUSDT,1,,,,,,,,,
+False,False,core_symbol_BTCUSDT_002,core_symbol,core_symbol::BTCUSDT,2,,,,,,,,,
+False,False,core_symbol_BTCUSDT_003,core_symbol,core_symbol::BTCUSDT,3,,,,,,,,,
+False,False,core_symbol_BTCUSDT_004,core_symbol,core_symbol::BTCUSDT,4,,,,,,,,,
+False,False,core_symbol_BTCUSDT_005,core_symbol,core_symbol::BTCUSDT,5,,,,,,,,,
+False,False,core_symbol_BTCUSDT_006,core_symbol,core_symbol::BTCUSDT,6,,,,,,,,,
+False,False,core_symbol_BTCUSDT_007,core_symbol,core_symbol::BTCUSDT,7,,,,,,,,,
+False,False,core_symbol_BTCUSDT_008,core_symbol,core_symbol::BTCUSDT,8,,,,,,,,,
+False,False,core_symbol_BTCUSDT_009,core_symbol,core_symbol::BTCUSDT,9,,,,,,,,,
+True,True,core_symbol_BTCUSDT_010,core_symbol,core_symbol::BTCUSDT,10,2.708717361457134,0.7979091039723987,3.4013675455677213,0.18466594231503322,,,True,True,True
+False,False,core_symbol_ETHUSDT_001,core_symbol,core_symbol::ETHUSDT,1,,,,,,,,,
+False,False,core_symbol_ETHUSDT_002,core_symbol,core_symbol::ETHUSDT,2,,,,,,,,,
+False,False,core_symbol_ETHUSDT_003,core_symbol,core_symbol::ETHUSDT,3,,,,,,,,,
+False,False,core_symbol_ETHUSDT_004,core_symbol,core_symbol::ETHUSDT,4,,,,,,,,,
+False,False,core_symbol_ETHUSDT_005,core_symbol,core_symbol::ETHUSDT,5,,,,,,,,,
+False,False,core_symbol_ETHUSDT_006,core_symbol,core_symbol::ETHUSDT,6,,,,,,,,,
