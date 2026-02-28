@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -33,21 +35,18 @@ def _fmt_dt(value: datetime | None) -> str | None:
 def _notes_db_uri() -> str:
     root = Path(__file__).resolve().parents[2]
     raw_db_path = os.getenv("NOTES_DB_PATH", "").strip()
-
     if raw_db_path:
         db_path = Path(raw_db_path)
         if not db_path.is_absolute():
             db_path = (root / db_path).resolve()
     else:
         db_path = root / "data" / "notes" / "notes.db"
-
     db_path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{db_path.as_posix()}"
 
 
 class User(db.Model):
     __tablename__ = "users"
-
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(32), unique=True, index=True, nullable=False)
     email = db.Column(db.String(255), unique=True, index=True, nullable=False)
@@ -71,7 +70,6 @@ class User(db.Model):
 
 class Note(db.Model):
     __tablename__ = "notes"
-
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), index=True, nullable=False)
     title = db.Column(db.String(200), nullable=False, default="")
@@ -81,7 +79,6 @@ class Note(db.Model):
     is_public = db.Column(db.Boolean, nullable=False, default=False, index=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
-
     user = db.relationship("User", backref=db.backref("notes", lazy=True))
 
     def to_dict(self, include_author: bool = False) -> dict[str, Any]:
@@ -172,7 +169,6 @@ def _normalize_tags(raw: Any) -> list[str]:
             txt = part.strip()
             if txt:
                 values.append(txt)
-
     dedup: list[str] = []
     seen: set[str] = set()
     for item in values:
@@ -198,18 +194,15 @@ def _require_auth_user(app: Flask) -> tuple[User | None, Any | None]:
     auth = request.headers.get("Authorization", "")
     if not auth.lower().startswith("bearer "):
         return None, _err("authorization_required", 401)
-
     token = auth.split(" ", 1)[1].strip()
     if not token:
         return None, _err("authorization_required", 401)
-
     try:
         user_id = _read_token(app, token)
     except SignatureExpired:
         return None, _err("token_expired", 401)
     except (BadSignature, KeyError, ValueError, TypeError):
         return None, _err("invalid_token", 401)
-
     user = db.session.get(User, user_id)
     if user is None:
         return None, _err("user_not_found", 401)
@@ -224,9 +217,7 @@ def create_app() -> Flask:
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["NOTES_AUTH_SECRET"] = os.getenv("NOTES_AUTH_SECRET", "notes-dev-secret-change-me")
     app.config["NOTES_TOKEN_TTL_SECONDS"] = int(os.getenv("NOTES_TOKEN_TTL_SECONDS", "604800"))
-
     db.init_app(app)
-
     with app.app_context():
         db.create_all()
 
@@ -240,11 +231,9 @@ def create_app() -> Flask:
         username = _normalize_username(payload.get("username"))
         email = _normalize_email(payload.get("email"))
         password = str(payload.get("password") or "")
-
         validation_error = _validate_register_input(username, email, password)
         if validation_error:
             return _err(validation_error, 400)
-
         duplicate = User.query.filter(
             or_(
                 func.lower(User.username) == username.lower(),
@@ -253,7 +242,6 @@ def create_app() -> Flask:
         ).first()
         if duplicate:
             return _err("username_or_email_already_exists", 409)
-
         user = User(
             username=username,
             email=email,
@@ -261,13 +249,11 @@ def create_app() -> Flask:
             is_active=True,
         )
         db.session.add(user)
-
         try:
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
             return _err("username_or_email_already_exists", 409)
-
         return jsonify({"ok": True, "user": user.to_public_dict()}), 201
 
     @app.post("/api/auth/login")
@@ -276,28 +262,23 @@ def create_app() -> Flask:
         username = _normalize_username(payload.get("username"))
         email = _normalize_email(payload.get("email"))
         password = str(payload.get("password") or "")
-
         if not password:
             return _err("password_required", 400)
         if not username and not email:
             return _err("username_or_email_required", 400)
-
         query = User.query
         if email:
             user = query.filter(func.lower(User.email) == email).first()
         else:
             user = query.filter(func.lower(User.username) == username.lower()).first()
-
         if user is None:
             return _err("invalid_credentials", 401)
         if not user.is_active:
             return _err("account_disabled", 403)
         if not check_password_hash(user.password_hash, password):
             return _err("invalid_credentials", 401)
-
         user.last_login_at = _utcnow()
         db.session.commit()
-
         token = _issue_token(app, user.id)
         return jsonify(
             {
@@ -321,19 +302,16 @@ def create_app() -> Flask:
         user, auth_err = _require_auth_user(app)
         if auth_err is not None:
             return auth_err
-
         payload = _json_payload()
         title = str(payload.get("title") or "").strip()
         content = str(payload.get("content") or "").strip()
         note_type = str(payload.get("note_type") or "NOTE").strip().upper() or "NOTE"
         tags_list = _normalize_tags(payload.get("tags"))
         is_public = bool(payload.get("is_public", False))
-
         if not title and not content:
             return _err("title_or_content_required", 400)
         if note_type not in {"NOTE", "JOURNAL", "PLAN"}:
             note_type = "NOTE"
-
         note = Note(
             user_id=user.id,
             title=title,
@@ -344,7 +322,6 @@ def create_app() -> Flask:
         )
         db.session.add(note)
         db.session.commit()
-
         return jsonify({"ok": True, "item": note.to_dict(include_author=True)}), 201
 
     @app.get("/api/notes")
@@ -352,10 +329,8 @@ def create_app() -> Flask:
         user, auth_err = _require_auth_user(app)
         if auth_err is not None:
             return auth_err
-
         q = str(request.args.get("q") or "").strip().lower()
         page_size = _parse_page_size(request.args.get("page_size"), default=20, max_value=100)
-
         query = Note.query.filter(Note.user_id == user.id)
         if q:
             query = query.filter(
@@ -365,7 +340,6 @@ def create_app() -> Flask:
                     func.lower(Note.tags_csv).like(f"%{q}%"),
                 )
             )
-
         items = (
             query.order_by(Note.updated_at.desc(), Note.id.desc())
             .limit(page_size)
@@ -383,7 +357,6 @@ def create_app() -> Flask:
     def list_public_notes() -> Any:
         q = str(request.args.get("q") or "").strip().lower()
         page_size = _parse_page_size(request.args.get("page_size"), default=10, max_value=100)
-
         query = Note.query.filter(Note.is_public.is_(True))
         if q:
             query = query.filter(
@@ -393,7 +366,6 @@ def create_app() -> Flask:
                     func.lower(Note.tags_csv).like(f"%{q}%"),
                 )
             )
-
         items = (
             query.order_by(Note.updated_at.desc(), Note.id.desc())
             .limit(page_size)
@@ -406,6 +378,168 @@ def create_app() -> Flask:
                 "count": len(items),
             }
         )
+
+    # ==================== Market API for Homepage ====================
+
+    def _get_data_path() -> Path:
+        """Get the data/processed directory path."""
+        return Path(__file__).resolve().parents[2] / "data" / "processed"
+
+    def _safe_float(value: Any) -> float | None:
+        """Safely convert value to float, return None if NaN or invalid."""
+        if value is None:
+            return None
+        try:
+            f = float(value)
+            if math.isnan(f) or math.isinf(f):
+                return None
+            return f
+        except (TypeError, ValueError):
+            return None
+
+    @app.get("/api/market/overview")
+    def market_overview() -> Any:
+        """Return market overview with BTC/ETH/SOL prices and 24h changes."""
+        data_path = _get_data_path() / "market_snapshot.json"
+        if not data_path.exists():
+            return jsonify({"ok": False, "error": "market_data_not_found"}), 503
+
+        try:
+            with open(data_path, "r", encoding="utf-8") as f:
+                snapshot = json.load(f)
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"failed_to_read_data: {e}"}), 500
+
+        # Filter for main crypto assets and valid data
+        target_assets = {"btc", "eth", "sol"}
+        assets = []
+        for row in snapshot.get("rows", []):
+            instrument_id = row.get("instrument_id", "").lower()
+            if instrument_id in target_assets:
+                current_price = _safe_float(row.get("current_price"))
+                predicted_change = _safe_float(row.get("predicted_change_pct"))
+                assets.append({
+                    "symbol": row.get("symbol", ""),
+                    "name": row.get("name", ""),
+                    "instrument_id": instrument_id,
+                    "current_price": current_price,
+                    "predicted_change_pct": predicted_change,
+                    "market": row.get("market", "crypto"),
+                    "error": row.get("error_message") if row.get("error_message") and not current_price else None,
+                })
+
+        # If no crypto found, include all assets as fallback
+        if not assets:
+            for row in snapshot.get("rows", [])[:5]:  # Limit to 5 assets
+                current_price = _safe_float(row.get("current_price"))
+                assets.append({
+                    "symbol": row.get("symbol", ""),
+                    "name": row.get("name", ""),
+                    "instrument_id": row.get("instrument_id", ""),
+                    "current_price": current_price,
+                    "predicted_change_pct": _safe_float(row.get("predicted_change_pct")),
+                    "market": row.get("market", ""),
+                    "error": row.get("error_message") if row.get("error_message") and not current_price else None,
+                })
+
+        return jsonify({
+            "ok": True,
+            "assets": assets,
+            "generated_at_utc": snapshot.get("rows", [{}])[0].get("generated_at_utc", "") if snapshot.get("rows") else "",
+            "timestamp": _utcnow().isoformat(),
+        })
+
+    @app.get("/api/predictions/summary")
+    def predictions_summary() -> Any:
+        """Return latest prediction signals summary."""
+        data_path = _get_data_path() / "predictions_latest_summary.json"
+        if not data_path.exists():
+            return jsonify({"ok": False, "error": "predictions_data_not_found"}), 503
+
+        try:
+            with open(data_path, "r", encoding="utf-8") as f:
+                predictions = json.load(f)
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"failed_to_read_data: {e}"}), 500
+
+        # Extract hourly and daily summaries
+        hourly = predictions.get("hourly", {}).get("latest", {})
+        daily = predictions.get("daily", {}).get("latest", {})
+
+        summary = {
+            "hourly": {
+                "timestamp_utc": hourly.get("timestamp_utc"),
+                "close": _safe_float(hourly.get("close")),
+                "direction_prediction": hourly.get("dir_h1_pred"),
+                "prob_up": _safe_float(hourly.get("dir_h1_p_up")),
+                "prob_down": _safe_float(hourly.get("dir_h1_p_down")),
+                "return_q10": _safe_float(hourly.get("ret_h1_q0.1")),
+                "return_q50": _safe_float(hourly.get("ret_h1_q0.5")),
+                "return_q90": _safe_float(hourly.get("ret_h1_q0.9")),
+            },
+            "daily": {
+                "timestamp_utc": daily.get("timestamp_utc"),
+                "close": _safe_float(daily.get("close")),
+                "direction_prediction": daily.get("dir_h1_pred"),
+                "prob_up": _safe_float(daily.get("dir_h1_p_up")),
+                "prob_down": _safe_float(daily.get("dir_h1_p_down")),
+                "return_q10": _safe_float(daily.get("ret_h1_q0.1")),
+                "return_q50": _safe_float(daily.get("ret_h1_q0.5")),
+                "return_q90": _safe_float(daily.get("ret_h1_q0.9")),
+            },
+        }
+
+        return jsonify({
+            "ok": True,
+            "summary": summary,
+            "model_versions": {
+                "hourly": predictions.get("hourly", {}).get("model_version"),
+                "daily": predictions.get("daily", {}).get("model_version"),
+            },
+            "timestamp": _utcnow().isoformat(),
+        })
+
+    @app.get("/api/system/status")
+    def system_status() -> Any:
+        """Return system status and last update times."""
+        data_path = _get_data_path()
+
+        status = {
+            "ok": True,
+            "service": "StockandCrypto API",
+            "version": "1.0.0",
+            "timestamp": _utcnow().isoformat(),
+        }
+
+        # Check data files existence and modification times
+        files_status = {}
+
+        market_file = data_path / "market_snapshot.json"
+        if market_file.exists():
+            stat = market_file.stat()
+            files_status["market_snapshot"] = {
+                "exists": True,
+                "size_bytes": stat.st_size,
+                "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            }
+        else:
+            files_status["market_snapshot"] = {"exists": False}
+
+        predictions_file = data_path / "predictions_latest_summary.json"
+        if predictions_file.exists():
+            stat = predictions_file.stat()
+            files_status["predictions_summary"] = {
+                "exists": True,
+                "size_bytes": stat.st_size,
+                "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            }
+        else:
+            files_status["predictions_summary"] = {"exists": False}
+
+        status["data_files"] = files_status
+        status["database"] = {"connected": True}
+
+        return jsonify(status)
 
     return app
 
