@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
+import time
 import hashlib
 import importlib
 import subprocess
@@ -61,6 +64,37 @@ def _load_csv(path: Path) -> pd.DataFrame:
 def _load_main_config_cached(config_path: str = "configs/config.yaml") -> Dict[str, object]:
     return load_config(config_path)
 
+
+def _notes_api_url() -> str:
+    return os.getenv("NOTES_API_URL", "http://127.0.0.1:5001")
+
+
+def _notes_api_health() -> bool:
+    try:
+        resp = requests.get(f"{_notes_api_url()}/api/health", timeout=2)
+        return resp.ok
+    except Exception:
+        return False
+
+
+def _start_notes_service() -> bool:
+    if _notes_api_health():
+        return True
+    root = Path(__file__).resolve().parents[1]
+    app_path = root / "src" / "notes" / "app.py"
+    if not app_path.exists():
+        return False
+    creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    proc = subprocess.Popen(
+        [sys.executable, str(app_path)],
+        cwd=str(root),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creation_flags,
+    )
+    st.session_state["notes_service_pid"] = proc.pid
+    time.sleep(0.4)
+    return _notes_api_health()
 
 def _ui_lang() -> str:
     lang = str(st.session_state.get("ui_lang", "zh")).strip().lower()
@@ -9621,6 +9655,139 @@ def _render_tracking_page(processed_dir: Path) -> None:
             st.markdown(report_path.read_text(encoding="utf-8"))
 
 
+def _render_notes_page() -> None:
+    st.header(_t("笔记 / Notes", "Notes"))
+
+    api_ok = _notes_api_health()
+    status_text = _t("已连接 Notes 服务", "Notes service connected") if api_ok else _t("未连接 Notes 服务", "Notes service not connected")
+    st.info(status_text)
+
+    if not api_ok:
+        c1, c2 = st.columns(2)
+        if c1.button(_t("启动 Notes 服务（本地）", "Start Notes service (local)"), use_container_width=True):
+            if _start_notes_service():
+                st.success(_t("Notes 服务已启动。", "Notes service started."))
+            else:
+                st.error(_t("启动失败，请手动运行 src/notes/app.py", "Failed to start. Run src/notes/app.py manually."))
+        with c2:
+            st.caption(_t("默认地址: http://127.0.0.1:5001", "Default: http://127.0.0.1:5001"))
+        st.stop()
+
+    def _call(method: str, path: str, token: str | None = None, params: dict | None = None, payload: dict | None = None) -> dict:
+        url = f"{_notes_api_url()}{path}"
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            resp = requests.request(method, url, headers=headers, params=params, json=payload, timeout=8)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"ok": False, "error": f"HTTP {resp.status_code}"}
+        if not resp.ok and data.get("ok") is not True:
+            data.setdefault("error", f"HTTP {resp.status_code}")
+        return data
+
+    token = st.session_state.get("notes_token")
+    user = st.session_state.get("notes_user")
+
+    if not token:
+        t1, t2 = st.tabs([_t("登录", "Login"), _t("注册", "Register")])
+        with t1:
+            with st.form("notes_login"):
+                username = st.text_input(_t("用户名", "Username"))
+                email = st.text_input(_t("邮箱", "Email"))
+                password = st.text_input(_t("密码", "Password"), type="password")
+                submitted = st.form_submit_button(_t("登录", "Login"))
+                if submitted:
+                    payload = {"username": username, "email": email, "password": password}
+                    data = _call("POST", "/api/auth/login", payload=payload)
+                    if data.get("ok"):
+                        st.session_state["notes_token"] = data.get("token")
+                        st.session_state["notes_user"] = data.get("user")
+                        st.success(_t("登录成功", "Login successful"))
+                        st.rerun()
+                    else:
+                        st.error(str(data.get("error", "login_failed")))
+        with t2:
+            with st.form("notes_register"):
+                username = st.text_input(_t("用户名", "Username"), key="reg_username")
+                email = st.text_input(_t("邮箱", "Email"), key="reg_email")
+                password = st.text_input(_t("密码", "Password"), type="password", key="reg_password")
+                submitted = st.form_submit_button(_t("注册", "Register"))
+                if submitted:
+                    payload = {"username": username, "email": email, "password": password}
+                    data = _call("POST", "/api/auth/register", payload=payload)
+                    if data.get("ok"):
+                        st.success(_t("注册成功，请登录。", "Registered. Please login."))
+                    else:
+                        st.error(str(data.get("error", "register_failed")))
+        st.stop()
+
+    u_name = user.get("username") if isinstance(user, dict) else None
+    st.success(_t(f"已登录：{u_name}", f"Logged in as: {u_name}"))
+    if st.button(_t("退出登录", "Logout"), use_container_width=False):
+        st.session_state.pop("notes_token", None)
+        st.session_state.pop("notes_user", None)
+        st.rerun()
+
+    st.subheader(_t("创建笔记", "Create Note"))
+    with st.form("notes_create"):
+        title = st.text_input(_t("标题", "Title"))
+        content = st.text_area(_t("内容", "Content"), height=160)
+        tags = st.text_input(_t("标签（逗号分隔）", "Tags (comma-separated)"))
+        note_type = st.selectbox(_t("类型", "Type"), options=["NOTE", "JOURNAL", "PLAN"])
+        is_public = st.checkbox(_t("公开", "Public"), value=False)
+        submitted = st.form_submit_button(_t("保存", "Save"))
+        if submitted:
+            payload = {
+                "title": title,
+                "content": content,
+                "tags": tags,
+                "note_type": note_type,
+                "is_public": is_public,
+            }
+            data = _call("POST", "/api/notes", token=token, payload=payload)
+            if data.get("ok"):
+                st.success(_t("已创建", "Created"))
+            else:
+                st.error(str(data.get("error", "create_failed")))
+
+    st.subheader(_t("我的笔记", "My Notes"))
+    query = st.text_input(_t("搜索", "Search"), key="notes_search")
+    mine = _call("GET", "/api/notes", token=token, params={"mine": "true", "q": query, "page_size": 20})
+    if mine.get("ok"):
+        items = mine.get("items", [])
+        if not items:
+            st.caption(_t("暂无笔记", "No notes yet."))
+        for item in items:
+            title = item.get("title", "-")
+            note_id = item.get("id", "-")
+            with st.expander(f"{title} (#{note_id})", expanded=False):
+                st.write(item.get("content", ""))
+                st.caption(_t("更新时间", "Updated at") + f": {item.get('updated_at', '-')}")
+                st.caption(_t("标签", "Tags") + f": {item.get('tags', [])}")
+    else:
+        st.error(str(mine.get("error", "load_failed")))
+
+    st.subheader(_t("公开笔记", "Public Notes"))
+    pub = _call("GET", "/api/notes/public", token=token, params={"page_size": 10})
+    if pub.get("ok"):
+        items = pub.get("items", [])
+        if not items:
+            st.caption(_t("暂无公开笔记", "No public notes."))
+        for item in items:
+            title = item.get("title", "-")
+            note_id = item.get("id", "-")
+            with st.expander(f"{title} (#{note_id})", expanded=False):
+                st.write(item.get("content", ""))
+                st.caption(_t("作者", "Author") + f": {item.get('author', {}).get('username', '-')}")
+    else:
+        st.error(str(pub.get("error", "load_failed")))
+
+
 def _render_execution_page(processed_dir: Path) -> None:
     st.header(_t("Paper Trading / Execution 页面", "Paper Trading / Execution"))
     out_dir = _execution_output_dir(processed_dir)
@@ -9920,6 +10087,7 @@ div[data-testid="stMetricValue"] * {
         ("us", _t("美股 页面", "US Equity Page")),
         ("session", _t("交易时间段预测（Crypto）", "Session Forecast (Crypto)")),
         ("session_index", _t("交易时间段预测（指数）", "Session Forecast (Indices)")),
+        ("notes", _t("笔记 / Notes", "Notes")),
         ("tracking", _t("Selection / Research / Tracking 页面", "Selection / Research / Tracking")),
         ("execution", _t("Paper Trading / Execution 页面", "Paper Trading / Execution")),
     ]
@@ -9943,6 +10111,8 @@ div[data-testid="stMetricValue"] * {
         _render_crypto_session_page()
     elif page_key == "session_index":
         _render_index_session_page()
+    elif page_key == "notes":
+        _render_notes_page()
     elif page_key == "execution":
         _render_execution_page(processed_dir)
     else:

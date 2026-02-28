@@ -1,0 +1,211 @@
+Project Requirements Evaluation Rubric  
+ 
+Title Page    The title page identifies the name of 
+the project and contains all of the 
+required information  
+(1) The title page is 
+missing required 
+information  
+(.5)  
+ 
+Missing section  
+(0) 
+Project Overview  The Project 
+Overview was an 
+appropriate length 
+while clearly 
+stating what the 
+project entails.  
+ 
+ 
+(1) The Project 
+Overview was a 
+good length while 
+stating what the 
+project entails.  
+ 
+ 
+ 
+(.8) The Project 
+Overview was 
+lengthy while 
+somewhat 
+stating what the 
+project entails.  
+ 
+ 
+(.6) The Project 
+Overview was long 
+(or short) and 
+went  into more 
+(or not enough) 
+detail than needed 
+about what the 
+project entails  
+(.4) The Project 
+Overview was 
+overly long (or 
+short) and went 
+into too much (or 
+too little) detail 
+about what the 
+project entails.  
+(.2)  
+ 
+ 
+ 
+ 
+ 
+ 
+Missing section  
+(0) 
+User Requirements  The User 
+Requirements and 
+MVP are  clearly 
+understandable 
+without additional 
+explanation.  
+ 
+ 
+ 
+(5) The User 
+Requirements and 
+MVP are 
+understandable 
+without 
+additional 
+explanation but 
+missing minor 
+information  
+(4) The User 
+Requirements 
+and MVP are 
+understandable 
+without 
+additional 
+explanation but 
+missing major 
+information  
+(3) The User 
+Requirements and 
+MVP is somewhat 
+understandable.  
+ 
+ 
+ 
+ 
+ 
+(2) The User 
+Requirements and 
+MVP is not 
+understandable.  
+ 
+ 
+ 
+ 
+ 
+(1)   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Missing section  
+(0) 
+Design  Choices  Several possible 
+implementations 
+were identified 
+along with pros  
+and cons that are 
+specific to the 
+project  
+(5) Several possible 
+implementations 
+were identified 
+along with pros  
+and cons that 
+somewhat 
+specific  
+(4) A few possible 
+implementations 
+were identified 
+but limited pros 
+and cons were 
+listed  
+ 
+(3) A couple of 
+possible 
+implementations 
+were identified 
+with pros/cons not 
+being specific to 
+the project  
+(2) Only one possible 
+implementation 
+was identified , no 
+pros/cons are 
+stated,  or selected 
+tools are stated  
+ 
+(1)  
+ 
+ 
+ 
+ 
+ 
+Missing section  
+(0) 
+
+Timeline  The timeline 
+states the project 
+and course tasks 
+and dates  
+ 
+(1) The timeline 
+states some 
+project and 
+course tasks  and 
+dates  
+(.8) The timeline 
+contains project  
+or course  tasks  
+and dates  
+ 
+(.6) The timeline 
+contains a few 
+project or course 
+tasks without 
+dates  
+(.4) The timeline shows 
+past tasks or 
+unattainable tasks  
+ 
+ 
+(.2)  
+ 
+ 
+Missing section  
+(0) 
+Document 
+Structure     The document is 
+sectioned  with 
+appropriate 
+headers  within the 
+page limitation.  
+ 
+(2) Document is not 
+sectioned  with 
+headers  or doesn’t 
+meet page 
+limitation.  
+ 
+(1) Document is 
+not sectioned  
+with headers  
+and doesn’t 
+meet page 
+limitation.  
+(0) 
+ 

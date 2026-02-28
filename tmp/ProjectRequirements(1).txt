@@ -1,0 +1,86 @@
+Project  Requirements  
+The purpose of the Project Requirements  assignment is for you to describe your 
+project in more detail than in your prospectus. You should approach your 
+project in an orderly manner by defining the problem and overall requirements 
+and choices before you undertake the programming work.  
+The report  contains your initial understanding of the  requirements and  design 
+of your project (see below Written reports section to know what is expected in 
+the report). You will take the feedback provided by the instructors and what you 
+have learned over the semester to provide a better design specification report  
+later. 
+At least 2 days before the due date, you should deliver a copy to your 
+sponsor to allow them to read and okay your document . 
+ 
+Prepare your document in a 1.15-spaced  format with a  12-point font . The 
+document must  be two to three  Full written pages  MAX. 
+Written report  
+If you  have any questions , please discuss the content of your project 
+requirements  with your instructor. Use citations as appropriate  and do not 
+bullet point descriptions . 
+ 
+• Title Page  (* not included in length of paper)  – The title of your project,  
+your info (name and email) along with your  sponsor ’s info (name and 
+email) . 
+ 
+• A short (paragraph) Project overview  – Describe what the topic of the 
+problem  entails - its context /purpose /story and  your motivation or 
+reason  (without specifying an y languages or tools  and do  not rehash or 
+state the MVP ). 
+ 
+• User requirements   
+o clearly explain the Minimum Viable Product ( it is possible to alter 
+the MVP later *see the More information section below ) to complete 
+the project successfully (the MVP must be approved by your 
+sponsor and the instructor [s] of the course ), you may also define 
+other product features that you plan or desire to deliver beyond the 
+MVP. Again, not bulleted lists, but a paragraph.  
+o include disclosure of any code used in another CS course you plan 
+to use while developing your project.  
+o Application projects - briefly describe in generalizations the 
+different types of system users  (what are the main reasons for 
+different users, administrator, employee/member, regular user, 
+
+etc.). Include at least two user stories for each user of your system 
+that supports your MVP  (do not go into specific detail s e.g. a user 
+goes to page x and clicks button y , the details will be in other 
+documents later ).  
+o Research projects - in leu of user types and stories, who will benefit 
+from the project  (this could be multiple people)  and what questions 
+you are trying to answer/solutions you are trying to find.  
+o Video Game projects – a detailed game play loop (how a player 
+interacts with the game, game functionality, rough idea of 
+mechanics). Simply stating roguelike, shooter, or basic genre will 
+not suffice.  
+ 
+• Design  Choices  - Describe what possible  technology languages, tools, 
+frameworks,  databases, datasets,  etc. you are considering  or could be  
+used for a project like yours (this should come from your research into 
+the project) .  You should have multiple possibilities  to compare  and 
+contrast by discuss ing the advantages and disadvantages of  each similar  
+technology  in relation  to the needs of  your project  (not generalized 
+aspects of the tech) . Later, i f your selected design  choice doesn’t work 
+out, this will provide alternative options to choose from . DO NOT inform 
+the reader what you plan to use for the project.   
+o External Components  - Provide an estimate of each external 
+components  makeup for the project (how much of the project come 
+from these components and include links to the applications or 
+tutorials)  
+▪ List all external applications - API’s  – if used.  
+▪ List any code not developed by you or tutorials  - if used  
+ 
+• Project timeline  as a list  – Must include  upcoming milestones  (do not 
+list dates  that have already past ), that is, the major tasks and the target 
+dates for completion  (both your dates and the courses  due dates ). 
+ 
+ 
+Convert your document to a pdf  and s ubmit your report  by the due date to 
+Blackboard . 
+ 
+ 
+More Information about altering  your MVP  
+Any additional functionality made  to your MVP throughout the semester is 
+allowed and highly encouraged. A change of project description or topic must 
+be made as a formal request in writing to your instructor  with sponsor approval 
+and as earlier as possible . The faculty will use the MVP to evaluate your project 
+at the end of the semester. NOTE: if you make changes that are not approved, 
+they will not be considered in the evaluation of your final project.  
