@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股市场预测 - StockandCrypto</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/components.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<!-- Header Navigation -->
+<header class="header">
+<div class="header-container">
+<div class="logo">
+<a href="index.html" style="display: flex; align-items: center; gap: 0.5rem;">
+<span class="logo-icon">◈</span>
+<span class="logo-text">StockandCrypto</span>
+</a>
+</div>
+<nav class="nav">
+<button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+<span></span>
+<span></span>
+<span></span>
+</button>
+<ul class="nav-menu" id="navMenu">
+<li><a href="index.html" class="nav-link">首页</a></li>
+<li><a href="crypto.html" class="nav-link">Crypto</a></li>
+<li><a href="cn-equity.html" class="nav-link active">A股</a></li>
+<li><a href="us-equity.html" class="nav-link">美股</a></li>
+<li><a href="session-index.html" class="nav-link">时段预测</a></li>
+</ul>
+</nav>
+<div class="nav-actions">
+<a href="login.html" class="btn btn-secondary btn-sm">登录</a>
+</div>
+</div>
+</header>
+
+<!-- Main Content -->
+<main class="main-content">
+<!-- Page Header -->
+<section class="page-header">
+<div class="container">
+<div class="page-header-content">
+<span class="page-tag">中国股市</span>
+<h1 class="page-title">A股市场预测</h1>
+<p class="page-desc">沪深两市股票趋势分析与智能预测</p>
+</div>
+</div>
+</section>
+
+<!-- Stock Selector -->
+<section class="section-padding">
+<div class="container">
+<div class="selector-container">
+<div class="selector-header">
+<h3 class="selector-title">选择股票</h3>
+<span class="selector-hint">选择一只股票查看详细预测信号</span>
+</div>
+<div class="selector-row">
+<select id="stockSelector" class="symbol-select">
+<option value="600519.SH">贵州茅台 (600519.SH)</option>
+<option value="300750.SZ">宁德时代 (300750.SZ)</option>
+<option value="002594.SZ">比亚迪 (002594.SZ)</option>
+<option value="601318.SH">中国平安 (601318.SH)</option>
+<option value="600036.SH">招商银行 (600036.SH)</option>
+<option value="000858.SZ">五粮液 (000858.SZ)</option>
+<option value="601012.SH">隆基绿能 (601012.SH)</option>
+<option value="000333.SZ">美的集团 (000333.SZ)</option>
+</select>
+<button id="refreshBtn" class="refresh-btn">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<path d="M23 4v6h-6M1 20v-6h6"/>
+<path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+</svg>
+<span>刷新</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Prediction Signal Card -->
+<section class="section-padding section-dark">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">AI 预测信号</h2>
+<p class="section-desc">基于机器学习模型的股票预测</p>
+</div>
+
+<!-- Main Signal Card -->
+<div class="signal-card-main" id="signalCardMain">
+<div class="signal-header">
+<div class="signal-symbol" id="signalSymbol">贵州茅台</div>
+<div class="signal-code" id="signalCode">600519.SH</div>
+<div class="signal-time" id="signalTime">--</div>
+</div>
+<div class="signal-body">
+<div class="signal-action" id="signalActionContainer">
+<span class="action-label">策略动作</span>
+<span class="action-value flat" id="signalAction">Flat</span>
+</div>
+<div class="signal-price">
+<div class="price-row">
+<span class="price-label">当前价格</span>
+<span class="price-value" id="currentPrice">¥--</span>
+</div>
+<div class="price-row">
+<span class="price-label">目标价格 (q50)</span>
+<span class="price-value" id="targetPrice">¥--</span>
+</div>
+</div>
+</div>
+<div class="signal-probabilities">
+<div class="prob-item">
+<span class="prob-label">上涨概率 (p_up)</span>
+<div class="prob-bar-container">
+<div class="prob-bar" id="pUpBar" style="width: 50%"></div>
+</div>
+<span class="prob-value" id="pUpValue">50.0%</span>
+</div>
+<div class="prob-item">
+<span class="prob-label">下跌概率 (p_down)</span>
+<div class="prob-bar-container">
+<div class="prob-bar bear" id="pDownBar" style="width: 50%"></div>
+</div>
+<span class="prob-value" id="pDownValue">50.0%</span>
+</div>
+</div>
+<div class="signal-confidence">
+<span class="confidence-label">置信度 (confidence)</span>
+<div class="confidence-bar-container">
+<div class="confidence-bar-fill" id="confidenceBar" style="width: 60%"></div>
+</div>
+<span class="confidence-value" id="confidenceValue">60%</span>
+</div>
+<div class="signal-details">
+<div class="detail-row">
+<span class="detail-label">预期涨跌幅 (q50)</span>
+<span class="detail-value" id="q50Change">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">波动强度 (volatility)</span>
+<span class="detail-value" id="volatilityScore">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">信号强度</span>
+<span class="detail-value" id="signalStrength">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">趋势</span>
+<span class="detail-value" id="trendLabel">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">风险等级</span>
+<span class="detail-value" id="riskLevel">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">建议仓位</span>
+<span class="detail-value" id="positionSize">--</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Index Overview -->
+<section class="section-padding">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">主要指数</h2>
+<p class="section-desc">A股主要指数实时行情</p>
+</div>
+<div class="index-grid">
+<!-- 上证指数 -->
+<div class="index-card">
+<div class="index-header">
+<div class="index-info">
+<span class="index-name">上证指数</span>
+<span class="index-code">000001.SH</span>
+</div>
+<span class="index-change positive" id="shChange">+0.00%</span>
+</div>
+<div class="index-price">
+<span class="price-value" id="shPrice">--</span>
+</div>
+<div class="index-chart">
+<canvas id="shChart" height="80"></canvas>
+</div>
+<div class="index-stats">
+<div class="stat">
+<span class="stat-label">今开</span>
+<span class="stat-value" id="shOpen">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最高</span>
+<span class="stat-value" id="shHigh">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最低</span>
+<span class="stat-value" id="shLow">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">成交量</span>
+<span class="stat-value" id="shVolume">--</span>
+</div>
+</div>
+</div>
+<!-- 深证成指 -->
+<div class="index-card">
+<div class="index-header">
+<div class="index-info">
+<span class="index-name">深证成指</span>
+<span class="index-code">399001.SZ</span>
+</div>
+<span class="index-change positive" id="szChange">+0.00%</span>
+</div>
+<div class="index-price">
+<span class="price-value" id="szPrice">--</span>
+</div>
+<div class="index-chart">
+<canvas id="szChart" height="80"></canvas>
+</div>
+<div class="index-stats">
+<div class="stat">
+<span class="stat-label">今开</span>
+<span class="stat-value" id="szOpen">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最高</span>
+<span class="stat-value" id="szHigh">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最低</span>
+<span class="stat-value" id="szLow">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">成交量</span>
+<span class="stat-value" id="szVolume">--</span>
+</div>
+</div>
+</div>
+<!-- 创业板指 -->
+<div class="index-card">
+<div class="index-header">
+<div class="index-info">
+<span class="index-name">创业板指</span>
+<span class="index-code">399006.SZ</span>
+</div>
+<span class="index-change negative" id="cybChange">-0.00%</span>
+</div>
+<div class="index-price">
+<span class="price-value" id="cybPrice">--</span>
+</div>
+<div class="index-chart">
+<canvas id="cybChart" height="80"></canvas>
+</div>
+<div class="index-stats">
+<div class="stat">
+<span class="stat-label">今开</span>
+<span class="stat-value" id="cybOpen">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最高</span>
+<span class="stat-value" id="cybHigh">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最低</span>
+<span class="stat-value" id="cybLow">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">成交量</span>
+<span class="stat-value" id="cybVolume">--</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Stock Predictions -->
+<section class="section-padding section-dark">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">热门股票预测</h2>
+<p class="section-desc">AI 分析热门个股走势预测</p>
+</div>
+<div class="stock-table-container">
+<table class="stock-table" id="stockTable">
+<thead>
+<tr>
+<th>股票名称</th>
+<th>股票代码</th>
+<th>当前价</th>
+<th>涨跌幅</th>
+<th>AI 预测</th>
+<th>置信度</th>
+<th>目标价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>贵州茅台</td>
+<td>600519.SH</td>
+<td id="moutaiPrice">--</td>
+<td id="moutaiChange">--%</td>
+<td><span class="prediction-tag bullish">看涨</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 75%"></div>
+<span>75%</span>
+</div>
+</td>
+<td id="moutaiTarget">--</td>
+</tr>
+<tr>
+<td>宁德时代</td>
+<td>300750.SZ</td>
+<td id="ningdePrice">--</td>
+<td id="ningdeChange">--%</td>
+<td><span class="prediction-tag bearish">看跌</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 68%"></div>
+<span>68%</span>
+</div>
+</td>
+<td id="ningdeTarget">--</td>
+</tr>
+<tr>
+<td>比亚迪</td>
+<td>002594.SZ</td>
+<td id="bydPrice">--</td>
+<td id="bydChange">--%</td>
+<td><span class="prediction-tag bullish">看涨</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 82%"></div>
+<span>82%</span>
+</div>
+</td>
+<td id="bydTarget">--</td>
+</tr>
+<tr>
+<td>中国平安</td>
+<td>601318.SH</td>
+<td id="pinganPrice">--</td>
+<td id="pinganChange">--%</td>
+<td><span class="prediction-tag neutral">震荡</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 55%"></div>
+<span>55%</span>
+</div>
+</td>
+<td id="pinganTarget">--</td>
+</tr>
+<tr>
+<td>招商银行</td>
+<td>600036.SH</td>
+<td id="cmbPrice">--</td>
+<td id="cmbChange">--%</td>
+<td><span class="prediction-tag bullish">看涨</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 70%"></div>
+<span>70%</span>
+</div>
+</td>
+<td id="cmbTarget">--</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<!-- Market Sentiment -->
+<section class="section-padding">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">市场情绪</h2>
+<p class="section-desc">整体市场情绪指标分析</p>
+</div>
+<div class="insight-cards">
+<div class="insight-card">
+<div class="insight-icon">📊</div>
+<h4 class="insight-title">技术面分析</h4>
+<p class="insight-content">上证指数MACD金叉，KDJ指标超卖区域反弹，短期有望延续震荡上行格局。</p>
+</div>
+<div class="insight-card">
+<div class="insight-icon">🌡️</div>
+<h4 class="insight-title">市场情绪</h4>
+<p class="insight-content">两市成交额突破万亿，北向资金持续流入，市场情绪偏乐观。</p>
+</div>
+<div class="insight-card">
+<div class="insight-icon">📈</div>
+<h4 class="insight-title">资金流向</h4>
+<p class="insight-content">主力资金净流入科技、新能源板块，消费板块资金流出明显。</p>
+</div>
+</div>
+</div>
+</section>
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+<div class="container">
+<div class="footer-bottom" style="border-top: none; padding-top: 0;">
+<p class="copyright">© 2024 StockandCrypto. All rights reserved.</p>
+<div class="footer-legal">
+<a href="#">隐私政策</a>
+<a href="#">服务条款</a>
+</div>
+</div>
+</div>
+</footer>
+
+<script src="js/api.js"></script>
+<script src="js/main.js"></script>
+<script src="js/cn-equity.js"></script>
+</body>
+</html>

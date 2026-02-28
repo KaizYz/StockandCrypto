@@ -1,355 +1,366 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StockandCrypto - 智能量化交易预测系统</title>
-    <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockandCrypto - 智能量化交易预测系统</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/components.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <!-- Header Navigation -->
-    <header class="header">
-        <div class="header-container">
-            <div class="logo">
-                <span class="logo-icon">◈</span>
-                <span class="logo-text">StockandCrypto</span>
-            </div>
-            <nav class="nav">
-                <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-                <ul class="nav-menu" id="navMenu">
-                    <li><a href="#" class="nav-link active">首页</a></li>
-                    <li><a href="#prediction" class="nav-link">预测</a></li>
-                    <li><a href="#backtest" class="nav-link">回测</a></li>
-                    <li><a href="#notes" class="nav-link">笔记</a></li>
-                    <li><a href="#about" class="nav-link">关于</a></li>
-                </ul>
-            </nav>
-        </div>
-    </header>
+<!-- Header Navigation -->
+<header class="header">
+<div class="header-container">
+<div class="logo">
+<a href="index.html" style="display: flex; align-items: center; gap: 0.5rem;">
+<span class="logo-icon">◈</span>
+<span class="logo-text">StockandCrypto</span>
+</a>
+</div>
+<nav class="nav">
+<button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+<span></span>
+<span></span>
+<span></span>
+</button>
+<ul class="nav-menu" id="navMenu">
+<li><a href="index.html" class="nav-link active">首页</a></li>
+<li><a href="crypto.html" class="nav-link">Crypto</a></li>
+<li><a href="cn-equity.html" class="nav-link">A股</a></li>
+<li><a href="us-equity.html" class="nav-link">美股</a></li>
+<li><a href="session-crypto.html" class="nav-link">时段预测</a></li>
+</ul>
+</nav>
+<div class="nav-actions">
+<a href="login.html" class="btn btn-secondary btn-sm">登录</a>
+</div>
+</div>
+</header>
 
-    <!-- Hero Section -->
-    <section class="hero">
-        <div class="hero-bg">
-            <div class="grid-lines"></div>
-            <div class="floating-particles" id="particles"></div>
-        </div>
-        <div class="hero-content">
-            <h1 class="hero-title">
-                <span class="title-line">智能量化交易</span>
-                <span class="title-line highlight">预测系统</span>
-            </h1>
-            <p class="hero-subtitle">AI驱动的股票与加密货币趋势分析</p>
-            <div class="hero-cta">
-                <a href="#" class="btn btn-primary">
-                    <span>开始使用</span>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M5 12h14M12 5l7 7-7 7"/>
-                    </svg>
-                </a>
-                <a href="#features" class="btn btn-secondary">了解更多</a>
-            </div>
-            <div class="hero-stats">
-                <div class="stat-item">
-                    <span class="stat-value" data-count="98.5">0</span>
-                    <span class="stat-unit">%</span>
-                    <span class="stat-label">预测准确率</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" data-count="50">0</span>
-                    <span class="stat-unit">+</span>
-                    <span class="stat-label">交易对支持</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" data-count="10000">0</span>
-                    <span class="stat-unit">+</span>
-                    <span class="stat-label">活跃用户</span>
-                </div>
-            </div>
-        </div>
-        <div class="scroll-indicator">
-            <div class="mouse">
-                <div class="wheel"></div>
-            </div>
-            <span>向下滚动</span>
-        </div>
-    </section>
+<!-- Hero Section -->
+<section class="hero">
+<div class="hero-bg">
+<div class="grid-lines"></div>
+<div class="floating-particles" id="particles"></div>
+</div>
+<div class="hero-content">
+<h1 class="hero-title">
+<span class="title-line">智能量化交易</span>
+<span class="title-line highlight">预测系统</span>
+</h1>
+<p class="hero-subtitle">AI驱动的股票与加密货币趋势分析</p>
+<div class="hero-cta">
+<a href="crypto.html" class="btn btn-primary">
+<span>开始使用</span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<path d="M5 12h14M12 5l7 7-7 7"/>
+</svg>
+</a>
+<a href="#features" class="btn btn-secondary">了解更多</a>
+</div>
+<div class="hero-stats">
+<div class="stat-item">
+<span class="stat-value" data-count="98.5">0</span>
+<span class="stat-unit">%</span>
+<span class="stat-label">预测准确率</span>
+</div>
+<div class="stat-item">
+<span class="stat-value" data-count="50">0</span>
+<span class="stat-unit">+</span>
+<span class="stat-label">交易对支持</span>
+</div>
+<div class="stat-item">
+<span class="stat-value" data-count="10000">0</span>
+<span class="stat-unit">+</span>
+<span class="stat-label">活跃用户</span>
+</div>
+</div>
+</div>
+<div class="scroll-indicator">
+<div class="mouse">
+<div class="wheel"></div>
+</div>
+<span>向下滚动</span>
+</div>
+</section>
 
-    <!-- Features Section -->
-    <section class="features" id="features">
-        <div class="container">
-            <div class="section-header">
-                <span class="section-tag">核心功能</span>
-                <h2 class="section-title">强大的量化分析工具</h2>
-                <p class="section-desc">基于机器学习与大数据分析，为您提供精准的市场洞察</p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card" data-delay="0">
-                    <div class="feature-icon">
-                        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                            <circle cx="24" cy="24" r="20" stroke="url(#grad1)" stroke-width="2"/>
-                            <path d="M14 28 L20 22 L26 26 L34 18" stroke="#00d4aa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                            <circle cx="34" cy="18" r="3" fill="#00d4aa"/>
-                            <defs>
-                                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" style="stop-color:#d4af37"/>
-                                    <stop offset="100%" style="stop-color:#00d4aa"/>
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                    </div>
-                    <h3 class="feature-title">趋势预测</h3>
-                    <p class="feature-desc">采用 LSTM、Transformer 等深度学习模型，结合技术指标与市场情绪，预测价格走势</p>
-                    <div class="feature-tags">
-                        <span class="tag">机器学习</span>
-                        <span class="tag">实时分析</span>
-                    </div>
-                </div>
-                <div class="feature-card" data-delay="100">
-                    <div class="feature-icon">
-                        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                            <rect x="8" y="12" width="32" height="24" rx="2" stroke="#d4af37" stroke-width="2"/>
-                            <path d="M12 28 L18 22 L24 26 L30 20 L36 24" stroke="#00d4aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            <line x1="12" y1="32" x2="36" y2="32" stroke="#8892a0" stroke-width="1" stroke-dasharray="4 2"/>
-                        </svg>
-                    </div>
-                    <h3 class="feature-title">回测分析</h3>
-                    <p class="feature-desc">基于历史数据验证交易策略，计算收益率、最大回撤、夏普比率等关键指标</p>
-                    <div class="feature-tags">
-                        <span class="tag">策略验证</span>
-                        <span class="tag">风险评估</span>
-                    </div>
-                </div>
-                <div class="feature-card" data-delay="200">
-                    <div class="feature-icon">
-                        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                            <rect x="10" y="8" width="28" height="32" rx="3" stroke="url(#grad2)" stroke-width="2"/>
-                            <line x1="16" y1="16" x2="32" y2="16" stroke="#8892a0" stroke-width="1.5"/>
-                            <line x1="16" y1="22" x2="28" y2="22" stroke="#8892a0" stroke-width="1.5"/>
-                            <line x1="16" y1="28" x2="24" y2="28" stroke="#8892a0" stroke-width="1.5"/>
-                            <circle cx="32" cy="32" r="6" fill="#00d4aa" opacity="0.2"/>
-                            <path d="M30 32 L32 34 L35 30" stroke="#00d4aa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                            <defs>
-                                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" style="stop-color:#00d4aa"/>
-                                    <stop offset="100%" style="stop-color:#d4af37"/>
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                    </div>
-                    <h3 class="feature-title">交易笔记</h3>
-                    <p class="feature-desc">记录交易心得，分享策略思路，与社区投资者交流学习，共同成长</p>
-                    <div class="feature-tags">
-                        <span class="tag">社区分享</span>
-                        <span class="tag">知识沉淀</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
+<!-- Features Section -->
+<section class="features" id="features">
+<div class="container">
+<div class="section-header">
+<span class="section-tag">核心功能</span>
+<h2 class="section-title">强大的量化分析工具</h2>
+<p class="section-desc">基于机器学习与大数据分析，为您提供精准的市场洞察</p>
+</div>
+<div class="features-grid">
+<div class="feature-card" data-delay="0">
+<div class="feature-icon">
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+<circle cx="24" cy="24" r="20" stroke="url(#grad1)" stroke-width="2"/>
+<path d="M14 28 L20 22 L26 26 L34 18" stroke="#00d4aa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="34" cy="18" r="3" fill="#00d4aa"/>
+<defs>
+<linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" style="stop-color:#d4af37"/>
+<stop offset="100%" style="stop-color:#00d4aa"/>
+</linearGradient>
+</defs>
+</svg>
+</div>
+<h3 class="feature-title">趋势预测</h3>
+<p class="feature-desc">采用 LSTM、Transformer 等深度学习模型，结合技术指标与市场情绪，预测价格走势</p>
+<div class="feature-tags">
+<span class="tag">机器学习</span>
+<span class="tag">实时分析</span>
+</div>
+</div>
+<div class="feature-card" data-delay="100">
+<div class="feature-icon">
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+<rect x="8" y="12" width="32" height="24" rx="2" stroke="#d4af37" stroke-width="2"/>
+<path d="M12 28 L18 22 L24 26 L30 20 L36 24" stroke="#00d4aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="12" y1="32" x2="36" y2="32" stroke="#8892a0" stroke-width="1" stroke-dasharray="4 2"/>
+</svg>
+</div>
+<h3 class="feature-title">回测分析</h3>
+<p class="feature-desc">基于历史数据验证交易策略，计算收益率、最大回撤、夏普比率等关键指标</p>
+<div class="feature-tags">
+<span class="tag">策略验证</span>
+<span class="tag">风险评估</span>
+</div>
+</div>
+<div class="feature-card" data-delay="200">
+<div class="feature-icon">
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+<rect x="10" y="8" width="28" height="32" rx="3" stroke="url(#grad2)" stroke-width="2"/>
+<line x1="16" y1="16" x2="32" y2="16" stroke="#8892a0" stroke-width="1.5"/>
+<line x1="16" y1="22" x2="28" y2="22" stroke="#8892a0" stroke-width="1.5"/>
+<line x1="16" y1="28" x2="24" y2="28" stroke="#8892a0" stroke-width="1.5"/>
+<circle cx="32" cy="32" r="6" fill="#00d4aa" opacity="0.2"/>
+<path d="M30 32 L32 34 L35 30" stroke="#00d4aa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<defs>
+<linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" style="stop-color:#00d4aa"/>
+<stop offset="100%" style="stop-color:#d4af37"/>
+</linearGradient>
+</defs>
+</svg>
+</div>
+<h3 class="feature-title">交易笔记</h3>
+<p class="feature-desc">记录交易心得，分享策略思路，与社区投资者交流学习，共同成长</p>
+<div class="feature-tags">
+<span class="tag">社区分享</span>
+<span class="tag">知识沉淀</span>
+</div>
+</div>
+</div>
+</div>
+</section>
 
-    <!-- Data Dashboard Section -->
-    <section class="dashboard" id="dashboard">
-        <div class="container">
-            <div class="section-header">
-                <span class="section-tag">实时数据</span>
-                <h2 class="section-title">市场行情一览</h2>
-                <p class="section-desc">实时追踪主流加密货币价格变动</p>
-            </div>
-            <div class="dashboard-grid">
-                <div class="price-card" id="btcCard">
-                    <div class="price-header">
-                        <div class="coin-info">
-                            <span class="coin-icon">₿</span>
-                            <div class="coin-details">
-                                <span class="coin-name">Bitcoin</span>
-                                <span class="coin-symbol">BTC</span>
-                            </div>
-                        </div>
-                        <span class="price-change positive">+2.34%</span>
-                    </div>
-                    <div class="price-value">
-                        <span class="currency">$</span>
-                        <span class="value" id="btcPrice">67,542.89</span>
-                    </div>
-                    <div class="price-chart">
-                        <canvas id="btcChart" height="80"></canvas>
-                    </div>
-                    <div class="price-stats">
-                        <div class="stat">
-                            <span class="stat-name">24h 高</span>
-                            <span class="stat-val">$68,120</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-name">24h 低</span>
-                            <span class="stat-val">$65,890</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-name">成交量</span>
-                            <span class="stat-val">$28.5B</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="price-card" id="ethCard">
-                    <div class="price-header">
-                        <div class="coin-info">
-                            <span class="coin-icon">Ξ</span>
-                            <div class="coin-details">
-                                <span class="coin-name">Ethereum</span>
-                                <span class="coin-symbol">ETH</span>
-                            </div>
-                        </div>
-                        <span class="price-change positive">+1.87%</span>
-                    </div>
-                    <div class="price-value">
-                        <span class="currency">$</span>
-                        <span class="value" id="ethPrice">3,456.72</span>
-                    </div>
-                    <div class="price-chart">
-                        <canvas id="ethChart" height="80"></canvas>
-                    </div>
-                    <div class="price-stats">
-                        <div class="stat">
-                            <span class="stat-name">24h 高</span>
-                            <span class="stat-val">$3,520</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-name">24h 低</span>
-                            <span class="stat-val">$3,380</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-name">成交量</span>
-                            <span class="stat-val">$12.3B</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="price-card" id="solCard">
-                    <div class="price-header">
-                        <div class="coin-info">
-                            <span class="coin-icon">◎</span>
-                            <div class="coin-details">
-                                <span class="coin-name">Solana</span>
-                                <span class="coin-symbol">SOL</span>
-                            </div>
-                        </div>
-                        <span class="price-change negative">-0.52%</span>
-                    </div>
-                    <div class="price-value">
-                        <span class="currency">$</span>
-                        <span class="value" id="solPrice">142.35</span>
-                    </div>
-                    <div class="price-chart">
-                        <canvas id="solChart" height="80"></canvas>
-                    </div>
-                    <div class="price-stats">
-                        <div class="stat">
-                            <span class="stat-name">24h 高</span>
-                            <span class="stat-val">$145.80</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-name">24h 低</span>
-                            <span class="stat-val">$139.20</span>
-                        </div>
-                        <div class="stat">
-                            <span class="stat-name">成交量</span>
-                            <span class="stat-val">$2.8B</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="market-overview">
-                <div class="overview-card">
-                    <canvas id="marketChart" height="200"></canvas>
-                </div>
-            </div>
-        </div>
-    </section>
+<!-- Data Dashboard Section -->
+<section class="dashboard" id="dashboard">
+<div class="container">
+<div class="section-header">
+<span class="section-tag">实时数据</span>
+<h2 class="section-title">市场行情一览</h2>
+<p class="section-desc">实时追踪主流加密货币价格变动</p>
+</div>
+<div class="dashboard-grid">
+<div class="price-card" id="btcCard">
+<div class="price-header">
+<div class="coin-info">
+<span class="coin-icon">₿</span>
+<div class="coin-details">
+<span class="coin-name">Bitcoin</span>
+<span class="coin-symbol">BTC</span>
+</div>
+</div>
+<span class="price-change positive">+2.34%</span>
+</div>
+<div class="price-value">
+<span class="currency">$</span>
+<span class="value" id="btcPrice">67,542.89</span>
+</div>
+<div class="price-chart">
+<canvas id="btcChart" height="80"></canvas>
+</div>
+<div class="price-stats">
+<div class="stat">
+<span class="stat-name">24h 高</span>
+<span class="stat-val">$68,120</span>
+</div>
+<div class="stat">
+<span class="stat-name">24h 低</span>
+<span class="stat-val">$65,890</span>
+</div>
+<div class="stat">
+<span class="stat-name">成交量</span>
+<span class="stat-val">$28.5B</span>
+</div>
+</div>
+</div>
+<div class="price-card" id="ethCard">
+<div class="price-header">
+<div class="coin-info">
+<span class="coin-icon">Ξ</span>
+<div class="coin-details">
+<span class="coin-name">Ethereum</span>
+<span class="coin-symbol">ETH</span>
+</div>
+</div>
+<span class="price-change positive">+1.87%</span>
+</div>
+<div class="price-value">
+<span class="currency">$</span>
+<span class="value" id="ethPrice">3,456.72</span>
+</div>
+<div class="price-chart">
+<canvas id="ethChart" height="80"></canvas>
+</div>
+<div class="price-stats">
+<div class="stat">
+<span class="stat-name">24h 高</span>
+<span class="stat-val">$3,520</span>
+</div>
+<div class="stat">
+<span class="stat-name">24h 低</span>
+<span class="stat-val">$3,380</span>
+</div>
+<div class="stat">
+<span class="stat-name">成交量</span>
+<span class="stat-val">$12.3B</span>
+</div>
+</div>
+</div>
+<div class="price-card" id="solCard">
+<div class="price-header">
+<div class="coin-info">
+<span class="coin-icon">◎</span>
+<div class="coin-details">
+<span class="coin-name">Solana</span>
+<span class="coin-symbol">SOL</span>
+</div>
+</div>
+<span class="price-change negative">-0.52%</span>
+</div>
+<div class="price-value">
+<span class="currency">$</span>
+<span class="value" id="solPrice">142.35</span>
+</div>
+<div class="price-chart">
+<canvas id="solChart" height="80"></canvas>
+</div>
+<div class="price-stats">
+<div class="stat">
+<span class="stat-name">24h 高</span>
+<span class="stat-val">$145.80</span>
+</div>
+<div class="stat">
+<span class="stat-name">24h 低</span>
+<span class="stat-val">$139.20</span>
+</div>
+<div class="stat">
+<span class="stat-name">成交量</span>
+<span class="stat-val">$2.8B</span>
+</div>
+</div>
+</div>
+</div>
+<div class="market-overview">
+<div class="overview-card">
+<canvas id="marketChart" height="200"></canvas>
+</div>
+</div>
+</div>
+</section>
 
-    <!-- CTA Section -->
-    <section class="cta-section">
-        <div class="container">
-            <div class="cta-content">
-                <h2 class="cta-title">开始您的量化交易之旅</h2>
-                <p class="cta-desc">免费注册，获取 AI 驱动的市场洞察</p>
-                <a href="#" class="btn btn-primary btn-large">
-                    <span>立即开始</span>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M5 12h14M12 5l7 7-7 7"/>
-                    </svg>
-                </a>
-            </div>
-        </div>
-    </section>
+<!-- CTA Section -->
+<section class="cta-section">
+<div class="container">
+<div class="cta-content">
+<h2 class="cta-title">开始您的量化交易之旅</h2>
+<p class="cta-desc">免费注册，获取 AI 驱动的市场洞察</p>
+<a href="register.html" class="btn btn-primary btn-large">
+<span>立即开始</span>
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<path d="M5 12h14M12 5l7 7-7 7"/>
+</svg>
+</a>
+</div>
+</div>
+</section>
 
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <div class="footer-grid">
-                <div class="footer-brand">
-                    <div class="logo">
-                        <span class="logo-icon">◈</span>
-                        <span class="logo-text">StockandCrypto</span>
-                    </div>
-                    <p class="footer-desc">智能量化交易预测系统，让投资更简单</p>
-                    <div class="social-links">
-                        <a href="#" class="social-link" aria-label="Twitter">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                            </svg>
-                        </a>
-                        <a href="#" class="social-link" aria-label="GitHub">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                            </svg>
-                        </a>
-                        <a href="#" class="social-link" aria-label="Discord">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.2112.38-.4456.88-.6083 1.28-.6696-.1267-1.3613-.2014-2.0605-.2014-.6992 0-1.3898.0747-2.0605.2014-.1627-.4-.3971-.9-.6083-1.28-.005-.0741-.0785-.0371-.0785-.0371A19.7913 19.7913 0 005.65 4.3698a.0741.0741 0 00-.0317.0287C3.0117 8.4398 2.2892 12.4048 2.6459 16.3118a.0819.0819 0 00.0287.0607c2.0528 1.5256 4.0483 2.4508 5.9984 3.0632a.0759.0759 0 00.0844-.0287c.4626-.6308.8736-1.2966 1.2267-1.9942a.076.076 0 00-.0416-.1053c-.6528-.2476-1.2722-.5514-1.8677-.8926a.0762.0762 0 01-.0078-.1264c.1256-.0942.2512-.1923.3718-.2915a.0748.0748 0 01.0776-.0105c3.9278 1.7649 8.18 1.7649 12.0614 0a.0745.0745 0 01.0786.0095c.1206.0992.2462.1978.3718.292a.0762.0762 0 01-.0066.1266c-.5954.3416-1.215.6455-1.8678.893a.0758.0758 0 00-.0412.1065c.3605.6984.7715 1.3636 1.2259 1.9942a.0757.0757 0 00.0844.0287c1.9606-.6124 3.9562-1.5376 6.009-3.0632a.0756.0756 0 00.0287-.0607c.4208-4.5553-.7224-8.4859-3.0477-11.9725a.0613.0613 0 00-.0317-.0287zM9.3928 13.8148c-1.1887 0-2.1654-1.0857-2.1654-2.4195s.9524-2.4195 2.1654-2.4195c1.2206 0 2.1928 1.0933 2.1654 2.4195 0 1.3338-.9524 2.4195-2.1654 2.4195zm6.2174 0c-1.1887 0-2.1654-1.0857-2.1654-2.4195s.9524-2.4195 2.1654-2.4195c1.2206 0 2.1928 1.0933 2.1654 2.4195 0 1.3338-.9448 2.4195-2.1654 2.4195z"/>
-                            </svg>
-                        </a>
-                    </div>
-                </div>
-                <div class="footer-links">
-                    <h4 class="footer-title">产品</h4>
-                    <ul class="footer-menu">
-                        <li><a href="#">趋势预测</a></li>
-                        <li><a href="#">回测分析</a></li>
-                        <li><a href="#">交易笔记</a></li>
-                        <li><a href="#">API 接口</a></li>
-                    </ul>
-                </div>
-                <div class="footer-links">
-                    <h4 class="footer-title">资源</h4>
-                    <ul class="footer-menu">
-                        <li><a href="#">帮助中心</a></li>
-                        <li><a href="#">开发文档</a></li>
-                        <li><a href="#">博客文章</a></li>
-                        <li><a href="#">常见问题</a></li>
-                    </ul>
-                </div>
-                <div class="footer-links">
-                    <h4 class="footer-title">联系我们</h4>
-                    <ul class="footer-menu">
-                        <li><a href="mailto:hello@stockandcrypto.com">hello@stockandcrypto.com</a></li>
-                        <li><a href="#">Twitter @StockandCrypto</a></li>
-                        <li><a href="#">Discord 社区</a></li>
-                    </ul>
-                </div>
-            </div>
-            <div class="footer-bottom">
-                <p class="copyright">© 2024 StockandCrypto. All rights reserved.</p>
-                <div class="footer-legal">
-                    <a href="#">隐私政策</a>
-                    <a href="#">服务条款</a>
-                </div>
-            </div>
-        </div>
-    </footer>
+<!-- Footer -->
+<footer class="footer">
+<div class="container">
+<div class="footer-grid">
+<div class="footer-brand">
+<div class="logo">
+<span class="logo-icon">◈</span>
+<span class="logo-text">StockandCrypto</span>
+</div>
+<p class="footer-desc">智能量化交易预测系统，让投资更简单</p>
+<div class="social-links">
+<a href="#" class="social-link" aria-label="Twitter">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+</svg>
+</a>
+<a href="#" class="social-link" aria-label="GitHub">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+<path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+</svg>
+</a>
+<a href="#" class="social-link" aria-label="Discord">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+<path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.2112.38-.4456.88-.6083 1.28-.6696-.1267-1.3613-.2014-2.0605-.2014-.6992 0-1.3898.0747-2.0605.2014-.1627-.4-.3971-.9-.6083-1.28-.005-.0741-.0785-.0371-.0785-.0371A19.7913 19.7913 0 005.65 4.3698a.0741.0741 0 00-.0317.0287C3.0117 8.4398 2.2892 12.4048 2.6459 16.3118a.0819.0819 0 00.0287.0607c2.0528 1.5256 4.0483 2.4508 5.9984 3.0632a.0759.0759 0 00.0844-.0287c.4626-.6308.8736-1.2966 1.2267-1.9942a.076.076 0 00-.0416-.1053c-.6528-.2476-1.2722-.5514-1.8677-.8926a.0762.0762 0 01-.0078-.1264c.1256-.0942.2512-.1923.3718-.2915a.0748.0748 0 01.0776-.0105c3.9278 1.7649 8.18 1.7649 12.0614 0a.0745.0745 0 01.0786.0095c.1206.0992.2462.1978.3718.292a.0762.0762 0 01-.0066.1266c-.5954.3416-1.215.6455-1.8678.893a.0758.0758 0 00-.0412.1065c.3605.6984.7715 1.3636 1.2259 1.9942a.0757.0757 0 00.0844.0287c1.9606-.6124 3.9562-1.5376 6.009-3.0632a.0756.0756 0 00.0287-.0607c.4208-4.5553-.7224-8.4859-3.0477-11.9725a.0613.0613 0 00-.0317-.0287zM9.3928 13.8148c-1.1887 0-2.1654-1.0857-2.1654-2.4195s.9524-2.4195 2.1654-2.4195c1.2206 0 2.1928 1.0933 2.1654 2.4195 0 1.3338-.9524 2.4195-2.1654 2.4195zm6.2174 0c-1.1887 0-2.1654-1.0857-2.1654-2.4195s.9524-2.4195 2.1654-2.4195c1.2206 0 2.1928 1.0933 2.1654 2.4195 0 1.3338-.9448 2.4195-2.1654 2.4195z"/>
+</svg>
+</a>
+</div>
+</div>
+<div class="footer-links">
+<h4 class="footer-title">产品</h4>
+<ul class="footer-menu">
+<li><a href="crypto.html">Crypto 预测</a></li>
+<li><a href="cn-equity.html">A股预测</a></li>
+<li><a href="us-equity.html">美股预测</a></li>
+<li><a href="session-crypto.html">时段预测</a></li>
+</ul>
+</div>
+<div class="footer-links">
+<h4 class="footer-title">资源</h4>
+<ul class="footer-menu">
+<li><a href="#">帮助中心</a></li>
+<li><a href="#">开发文档</a></li>
+<li><a href="#">博客文章</a></li>
+<li><a href="#">常见问题</a></li>
+</ul>
+</div>
+<div class="footer-links">
+<h4 class="footer-title">联系我们</h4>
+<ul class="footer-menu">
+<li><a href="mailto:hello@stockandcrypto.com">hello@stockandcrypto.com</a></li>
+<li><a href="#">Twitter @StockandCrypto</a></li>
+<li><a href="#">Discord 社区</a></li>
+</ul>
+</div>
+</div>
+<div class="footer-bottom">
+<p class="copyright">© 2024 StockandCrypto. All rights reserved.</p>
+<div class="footer-legal">
+<a href="#">隐私政策</a>
+<a href="#">服务条款</a>
+</div>
+</div>
+</div>
+</footer>
 
-    <script src="js/main.js"></script>
+<!-- Toast Notification -->
+<div id="toast" class="toast"></div>
+
+<script src="js/api.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>

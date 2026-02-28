@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>指数时段预测 - StockandCrypto</title>
+    <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/components.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Header Navigation -->
+    <header class="header">
+        <div class="header-container">
+            <div class="logo">
+                <a href="index.html" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span class="logo-icon">◈</span>
+                    <span class="logo-text">StockandCrypto</span>
+                </a>
+            </div>
+            <nav class="nav">
+                <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="index.html" class="nav-link">首页</a></li>
+                    <li><a href="cn-equity.html" class="nav-link">A股</a></li>
+                    <li><a href="us-equity.html" class="nav-link">美股</a></li>
+                    <li><a href="session-index.html" class="nav-link active">指数时段</a></li>
+                </ul>
+            </nav>
+            <div class="nav-actions">
+                <a href="login.html" class="btn btn-secondary btn-sm">登录</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Page Header -->
+        <section class="page-header">
+            <div class="container">
+                <div class="page-header-content">
+                    <span class="page-tag">时段预测</span>
+                    <h1 class="page-title">指数交易时段预测</h1>
+                    <p class="page-desc">基于交易时段的股票指数波动预测分析</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Market Selector -->
+        <section class="section-padding">
+            <div class="container">
+                <div class="market-selector">
+                    <button class="market-btn active" data-market="cn">A股市场</button>
+                    <button class="market-btn" data-market="us">美股市场</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Trading Sessions -->
+        <section class="section-padding" style="padding-top: 0;">
+            <div class="container">
+                <!-- A股 Sessions -->
+                <div class="market-sessions" id="cnSessions">
+                    <div class="section-header">
+                        <h2 class="section-title">A股交易时段</h2>
+                        <p class="section-desc">沪深两市交易时间预测分析</p>
+                    </div>
+
+                    <div class="sessions-grid">
+                        <!-- 早盘集合竞价 -->
+                        <div class="session-card compact">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">早盘集合竞价</h3>
+                                    <span class="session-time">09:15 - 09:25</span>
+                                </div>
+                                <div class="session-volatility low">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">低</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">预计平开或小幅高开，关注权重股表现</p>
+                            </div>
+                        </div>
+
+                        <!-- 早盘连续竞价 -->
+                        <div class="session-card compact active">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">早盘连续竞价</h3>
+                                    <span class="session-time">09:30 - 11:30</span>
+                                </div>
+                                <div class="session-volatility high">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">高</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">开盘后可能快速拉升，10:00附近关注回调风险</p>
+                            </div>
+                        </div>
+
+                        <!-- 午盘 -->
+                        <div class="session-card compact">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">午盘连续竞价</h3>
+                                    <span class="session-time">13:00 - 14:57</span>
+                                </div>
+                                <div class="session-volatility medium">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">中</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">午后走势相对平缓，关注14:30后的尾盘异动</p>
+                            </div>
+                        </div>
+
+                        <!-- 尾盘集合竞价 -->
+                        <div class="session-card compact">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">尾盘集合竞价</h3>
+                                    <span class="session-time">14:57 - 15:00</span>
+                                </div>
+                                <div class="session-volatility medium">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">中</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">尾盘可能有小幅拉升，关注收盘价</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- US Sessions -->
+                <div class="market-sessions hidden" id="usSessions">
+                    <div class="section-header">
+                        <h2 class="section-title">美股交易时段</h2>
+                        <p class="section-desc">美股市场交易时间预测分析</p>
+                    </div>
+
+                    <div class="sessions-grid">
+                        <!-- 盘前 -->
+                        <div class="session-card compact">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">盘前交易</h3>
+                                    <span class="session-time">16:00 - 21:30 (北京时间)</span>
+                                </div>
+                                <div class="session-volatility medium">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">中</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">关注盘前期货走势和重要财报数据</p>
+                            </div>
+                        </div>
+
+                        <!-- 开盘 -->
+                        <div class="session-card compact active">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">开盘时段</h3>
+                                    <span class="session-time">21:30 - 22:30 (北京时间)</span>
+                                </div>
+                                <div class="session-volatility high">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">高</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">开盘波动较大，科技股可能领涨</p>
+                            </div>
+                        </div>
+
+                        <!-- 盘中 -->
+                        <div class="session-card compact">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">盘中交易</h3>
+                                    <span class="session-time">22:30 - 04:00 (北京时间)</span>
+                                </div>
+                                <div class="session-volatility medium">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">中</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">走势趋于稳定，适合趋势交易</p>
+                            </div>
+                        </div>
+
+                        <!-- 收盘 -->
+                        <div class="session-card compact">
+                            <div class="session-header">
+                                <div class="session-info">
+                                    <h3 class="session-name">收盘时段</h3>
+                                    <span class="session-time">04:00 (北京时间)</span>
+                                </div>
+                                <div class="session-volatility medium">
+                                    <span class="volatility-label">波动</span>
+                                    <span class="volatility-value">中</span>
+                                </div>
+                            </div>
+                            <div class="session-prediction-compact">
+                                <p class="prediction-text">关注收盘价和成交量</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Prediction Chart -->
+        <section class="section-padding section-dark">
+            <div class="container">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3 class="chart-title">时段波动预测图</h3>
+                        <div class="chart-legend">
+                            <span class="legend-item"><span class="legend-color" style="background: #00d4aa"></span> A股</span>
+                            <span class="legend-item"><span class="legend-color" style="background: #d4af37"></span> 美股</span>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="sessionChart" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Daily Summary -->
+        <section class="section-padding">
+            <div class="container">
+                <div class="section-header">
+                    <h2 class="section-title">今日预测总结</h2>
+                    <p class="section-desc">基于 AI 模型的整体市场判断</p>
+                </div>
+
+                <div class="insight-cards">
+                    <div class="insight-card">
+                        <div class="insight-icon">📈</div>
+                        <h4 class="insight-title">A股市场</h4>
+                        <p class="insight-content">
+                            <strong>预测方向：</strong><span style="color: #00d4aa">震荡上行</span><br>
+                            <strong>上证目标：</strong>3050 - 3100<br>
+                            <strong>置信度：</strong>72%
+                        </p>
+                    </div>
+                    <div class="insight-card">
+                        <div class="insight-icon">📊</div>
+                        <h4 class="insight-title">美股市场</h4>
+                        <p class="insight-content">
+                            <strong>预测方向：</strong><span style="color: #00d4aa">震荡偏强</span><br>
+                            <strong>纳指目标：</strong>16200 - 16500<br>
+                            <strong>置信度：</strong>68%
+                        </p>
+                    </div>
+                    <div class="insight-card">
+                        <div class="insight-icon">⚠️</div>
+                        <h4 class="insight-title">风险提示</h4>
+                        <p class="insight-content">
+                            关注美联储利率决议、国内政策动向，建议控制仓位，设置止损。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-bottom" style="border-top: none; padding-top: 0;">
+                <p class="copyright">© 2024 StockandCrypto. All rights reserved.</p>
+                <div class="footer-legal">
+                    <a href="#">隐私政策</a>
+                    <a href="#">服务条款</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/api.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/session-index.js"></script>
+</body>
+</html>

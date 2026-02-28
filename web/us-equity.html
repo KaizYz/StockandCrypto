@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>美股市场预测 - StockandCrypto</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/components.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<!-- Header Navigation -->
+<header class="header">
+<div class="header-container">
+<div class="logo">
+<a href="index.html" style="display: flex; align-items: center; gap: 0.5rem;">
+<span class="logo-icon">◈</span>
+<span class="logo-text">StockandCrypto</span>
+</a>
+</div>
+<nav class="nav">
+<button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+<span></span>
+<span></span>
+<span></span>
+</button>
+<ul class="nav-menu" id="navMenu">
+<li><a href="index.html" class="nav-link">首页</a></li>
+<li><a href="crypto.html" class="nav-link">Crypto</a></li>
+<li><a href="cn-equity.html" class="nav-link">A股</a></li>
+<li><a href="us-equity.html" class="nav-link active">美股</a></li>
+<li><a href="session-index.html" class="nav-link">时段预测</a></li>
+</ul>
+</nav>
+<div class="nav-actions">
+<a href="login.html" class="btn btn-secondary btn-sm">登录</a>
+</div>
+</div>
+</header>
+
+<!-- Main Content -->
+<main class="main-content">
+<!-- Page Header -->
+<section class="page-header">
+<div class="container">
+<div class="page-header-content">
+<span class="page-tag">美国股市</span>
+<h1 class="page-title">美股市场预测</h1>
+<p class="page-desc">纳斯达克、标普500等指数分析与个股预测</p>
+</div>
+</div>
+</section>
+
+<!-- Stock Selector -->
+<section class="section-padding">
+<div class="container">
+<div class="selector-container">
+<div class="selector-header">
+<h3 class="selector-title">选择股票</h3>
+<span class="selector-hint">选择一只美股查看详细预测信号</span>
+</div>
+<div class="selector-row">
+<select id="stockSelector" class="symbol-select">
+<option value="AAPL">Apple Inc. (AAPL)</option>
+<option value="MSFT">Microsoft (MSFT)</option>
+<option value="TSLA">Tesla Inc. (TSLA)</option>
+<option value="GOOGL">Alphabet (GOOGL)</option>
+<option value="NVDA">NVIDIA (NVDA)</option>
+<option value="AMZN">Amazon (AMZN)</option>
+<option value="META">Meta Platforms (META)</option>
+<option value="AMD">AMD (AMD)</option>
+</select>
+<button id="refreshBtn" class="refresh-btn">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<path d="M23 4v6h-6M1 20v-6h6"/>
+<path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+</svg>
+<span>刷新</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Prediction Signal Card -->
+<section class="section-padding section-dark">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">AI 预测信号</h2>
+<p class="section-desc">基于机器学习模型的美股预测</p>
+</div>
+
+<!-- Main Signal Card -->
+<div class="signal-card-main" id="signalCardMain">
+<div class="signal-header">
+<div class="signal-symbol" id="signalSymbol">Apple Inc.</div>
+<div class="signal-code" id="signalCode">AAPL</div>
+<div class="signal-time" id="signalTime">--</div>
+</div>
+<div class="signal-body">
+<div class="signal-action" id="signalActionContainer">
+<span class="action-label">策略动作</span>
+<span class="action-value flat" id="signalAction">Flat</span>
+</div>
+<div class="signal-price">
+<div class="price-row">
+<span class="price-label">当前价格</span>
+<span class="price-value" id="currentPrice">$--</span>
+</div>
+<div class="price-row">
+<span class="price-label">目标价格 (q50)</span>
+<span class="price-value" id="targetPrice">$--</span>
+</div>
+</div>
+</div>
+<div class="signal-probabilities">
+<div class="prob-item">
+<span class="prob-label">上涨概率 (p_up)</span>
+<div class="prob-bar-container">
+<div class="prob-bar" id="pUpBar" style="width: 50%"></div>
+</div>
+<span class="prob-value" id="pUpValue">50.0%</span>
+</div>
+<div class="prob-item">
+<span class="prob-label">下跌概率 (p_down)</span>
+<div class="prob-bar-container">
+<div class="prob-bar bear" id="pDownBar" style="width: 50%"></div>
+</div>
+<span class="prob-value" id="pDownValue">50.0%</span>
+</div>
+</div>
+<div class="signal-confidence">
+<span class="confidence-label">置信度 (confidence)</span>
+<div class="confidence-bar-container">
+<div class="confidence-bar-fill" id="confidenceBar" style="width: 60%"></div>
+</div>
+<span class="confidence-value" id="confidenceValue">60%</span>
+</div>
+<div class="signal-details">
+<div class="detail-row">
+<span class="detail-label">预期涨跌幅 (q50)</span>
+<span class="detail-value" id="q50Change">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">波动强度 (volatility)</span>
+<span class="detail-value" id="volatilityScore">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">信号强度</span>
+<span class="detail-value" id="signalStrength">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">趋势</span>
+<span class="detail-value" id="trendLabel">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">风险等级</span>
+<span class="detail-value" id="riskLevel">--</span>
+</div>
+<div class="detail-row">
+<span class="detail-label">建议仓位</span>
+<span class="detail-value" id="positionSize">--</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Index Overview -->
+<section class="section-padding">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">主要指数</h2>
+<p class="section-desc">美股三大指数实时行情</p>
+</div>
+<div class="index-grid">
+<!-- 道琼斯 -->
+<div class="index-card">
+<div class="index-header">
+<div class="index-info">
+<span class="index-name">道琼斯指数</span>
+<span class="index-code">DJI</span>
+</div>
+<span class="index-change positive" id="djiChange">+0.00%</span>
+</div>
+<div class="index-price">
+<span class="price-value" id="djiPrice">--</span>
+</div>
+<div class="index-chart">
+<canvas id="djiChart" height="80"></canvas>
+</div>
+<div class="index-stats">
+<div class="stat">
+<span class="stat-label">今开</span>
+<span class="stat-value" id="djiOpen">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最高</span>
+<span class="stat-value" id="djiHigh">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最低</span>
+<span class="stat-value" id="djiLow">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">成交量</span>
+<span class="stat-value" id="djiVolume">--</span>
+</div>
+</div>
+</div>
+<!-- 纳斯达克 -->
+<div class="index-card">
+<div class="index-header">
+<div class="index-info">
+<span class="index-name">纳斯达克指数</span>
+<span class="index-code">IXIC</span>
+</div>
+<span class="index-change positive" id="ixicChange">+0.00%</span>
+</div>
+<div class="index-price">
+<span class="price-value" id="ixicPrice">--</span>
+</div>
+<div class="index-chart">
+<canvas id="ixicChart" height="80"></canvas>
+</div>
+<div class="index-stats">
+<div class="stat">
+<span class="stat-label">今开</span>
+<span class="stat-value" id="ixicOpen">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最高</span>
+<span class="stat-value" id="ixicHigh">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最低</span>
+<span class="stat-value" id="ixicLow">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">成交量</span>
+<span class="stat-value" id="ixicVolume">--</span>
+</div>
+</div>
+</div>
+<!-- 标普500 -->
+<div class="index-card">
+<div class="index-header">
+<div class="index-info">
+<span class="index-name">标普500指数</span>
+<span class="index-code">SPX</span>
+</div>
+<span class="index-change negative" id="spxChange">-0.00%</span>
+</div>
+<div class="index-price">
+<span class="price-value" id="spxPrice">--</span>
+</div>
+<div class="index-chart">
+<canvas id="spxChart" height="80"></canvas>
+</div>
+<div class="index-stats">
+<div class="stat">
+<span class="stat-label">今开</span>
+<span class="stat-value" id="spxOpen">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最高</span>
+<span class="stat-value" id="spxHigh">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">最低</span>
+<span class="stat-value" id="spxLow">--</span>
+</div>
+<div class="stat">
+<span class="stat-label">成交量</span>
+<span class="stat-value" id="spxVolume">--</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Stock Predictions -->
+<section class="section-padding section-dark">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">热门股票预测</h2>
+<p class="section-desc">AI 分析热门美股走势预测</p>
+</div>
+<div class="stock-table-container">
+<table class="stock-table" id="stockTable">
+<thead>
+<tr>
+<th>股票名称</th>
+<th>代码</th>
+<th>当前价</th>
+<th>涨跌幅</th>
+<th>AI 预测</th>
+<th>置信度</th>
+<th>目标价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<div class="stock-name">
+<span class="stock-logo">🍎</span>
+<span>Apple Inc.</span>
+</div>
+</td>
+<td>AAPL</td>
+<td id="aaplPrice">$--</td>
+<td id="aaplChange" class="positive">+0.00%</td>
+<td><span class="prediction-tag bullish">看涨</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 78%"></div>
+<span>78%</span>
+</div>
+</td>
+<td id="aaplTarget">$--</td>
+</tr>
+<tr>
+<td>
+<div class="stock-name">
+<span class="stock-logo">📊</span>
+<span>Microsoft</span>
+</div>
+</td>
+<td>MSFT</td>
+<td id="msftPrice">$--</td>
+<td id="msftChange" class="positive">+0.00%</td>
+<td><span class="prediction-tag bullish">看涨</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 85%"></div>
+<span>85%</span>
+</div>
+</td>
+<td id="msftTarget">$--</td>
+</tr>
+<tr>
+<td>
+<div class="stock-name">
+<span class="stock-logo">🚗</span>
+<span>Tesla Inc.</span>
+</div>
+</td>
+<td>TSLA</td>
+<td id="tslaPrice">$--</td>
+<td id="tslaChange" class="negative">-0.00%</td>
+<td><span class="prediction-tag bearish">看跌</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 62%"></div>
+<span>62%</span>
+</div>
+</td>
+<td id="tslaTarget">$--</td>
+</tr>
+<tr>
+<td>
+<div class="stock-name">
+<span class="stock-logo">🔍</span>
+<span>Alphabet</span>
+</div>
+</td>
+<td>GOOGL</td>
+<td id="googlPrice">$--</td>
+<td id="googlChange" class="positive">+0.00%</td>
+<td><span class="prediction-tag bullish">看涨</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 72%"></div>
+<span>72%</span>
+</div>
+</td>
+<td id="googlTarget">$--</td>
+</tr>
+<tr>
+<td>
+<div class="stock-name">
+<span class="stock-logo">📱</span>
+<span>NVIDIA</span>
+</div>
+</td>
+<td>NVDA</td>
+<td id="nvdaPrice">$--</td>
+<td id="nvdaChange" class="positive">+0.00%</td>
+<td><span class="prediction-tag bullish">看涨</span></td>
+<td>
+<div class="mini-confidence">
+<div class="mini-bar" style="width: 88%"></div>
+<span>88%</span>
+</div>
+</td>
+<td id="nvdaTarget">$--</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<!-- Market Trend Chart -->
+<section class="section-padding">
+<div class="container">
+<div class="chart-container">
+<div class="chart-header">
+<h3 class="chart-title">指数走势对比</h3>
+<div class="chart-controls">
+<button class="chart-btn active" data-period="1D">1天</button>
+<button class="chart-btn" data-period="1W">1周</button>
+<button class="chart-btn" data-period="1M">1月</button>
+<button class="chart-btn" data-period="1Y">1年</button>
+</div>
+</div>
+<div class="chart-wrapper">
+<canvas id="trendChart" height="300"></canvas>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Sector Analysis -->
+<section class="section-padding section-dark">
+<div class="container">
+<div class="section-header">
+<h2 class="section-title">板块分析</h2>
+<p class="section-desc">各行业板块涨跌分布</p>
+</div>
+<div class="sector-grid" id="sectorGrid">
+<div class="sector-card positive">
+<span class="sector-name">科技</span>
+<span class="sector-change">+2.35%</span>
+</div>
+<div class="sector-card positive">
+<span class="sector-name">医疗健康</span>
+<span class="sector-change">+1.12%</span>
+</div>
+<div class="sector-card negative">
+<span class="sector-name">金融</span>
+<span class="sector-change">-0.85%</span>
+</div>
+<div class="sector-card positive">
+<span class="sector-name">消费</span>
+<span class="sector-change">+0.67%</span>
+</div>
+<div class="sector-card negative">
+<span class="sector-name">能源</span>
+<span class="sector-change">-1.23%</span>
+</div>
+<div class="sector-card positive">
+<span class="sector-name">工业</span>
+<span class="sector-change">+0.45%</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+<div class="container">
+<div class="footer-bottom" style="border-top: none; padding-top: 0;">
+<p class="copyright">© 2024 StockandCrypto. All rights reserved.</p>
+<div class="footer-legal">
+<a href="#">隐私政策</a>
+<a href="#">服务条款</a>
+</div>
+</div>
+</div>
+</footer>
+
+<script src="js/api.js"></script>
+<script src="js/main.js"></script>
+<script src="js/us-equity.js"></script>
+</body>
+</html>

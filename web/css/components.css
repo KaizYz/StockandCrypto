@@ -1,0 +1,225 @@
+/* ========================================
+StockandCrypto - Additional Components
+======================================== */
+
+/* ========================================
+Loading States
+======================================== */
+.loading-spinner {
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+padding: 3rem;
+gap: 1rem;
+}
+
+.spinner {
+width: 40px;
+height: 40px;
+border: 3px solid rgba(255, 255, 255, 0.1);
+border-top-color: #00d4aa;
+border-radius: 50%;
+animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+to { transform: rotate(360deg); }
+}
+
+.loading-spinner p {
+color: #8892a0;
+font-size: 0.9rem;
+}
+
+.loading {
+opacity: 0.7;
+pointer-events: none;
+}
+
+/* ========================================
+Error & Empty States
+======================================== */
+.error-message {
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+padding: 3rem;
+gap: 1.5rem;
+text-align: center;
+}
+
+.error-message p {
+color: #ff6b6b;
+font-size: 1rem;
+}
+
+.error-message .btn {
+margin-top: 0.5rem;
+}
+
+.empty-state {
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+padding: 3rem;
+text-align: center;
+}
+
+.empty-state p {
+color: #8892a0;
+font-size: 1rem;
+}
+
+/* ========================================
+Toast Notifications
+======================================== */
+.toast {
+position: fixed;
+bottom: 20px;
+right: 20px;
+padding: 1rem 1.5rem;
+background: #111827;
+border: 1px solid rgba(255, 255, 255, 0.08);
+border-radius: 8px;
+color: #ffffff;
+font-size: 0.9rem;
+opacity: 0;
+visibility: hidden;
+transform: translateY(20px);
+transition: all 0.25s ease;
+z-index: 1001;
+max-width: 300px;
+}
+
+.toast.show {
+opacity: 1;
+visibility: visible;
+transform: translateY(0);
+}
+
+.toast.success {
+border-color: #00d4aa;
+background: linear-gradient(135deg, rgba(0, 212, 170, 0.1), #111827);
+}
+
+.toast.error {
+border-color: #ff6b6b;
+background: linear-gradient(135deg, rgba(255, 107, 107, 0.1), #111827);
+}
+
+.toast.warning {
+border-color: #d4af37;
+background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), #111827);
+}
+
+.toast.info {
+border-color: #8892a0;
+background: linear-gradient(135deg, rgba(136, 146, 160, 0.1), #111827);
+}
+
+/* ========================================
+Button Loading State
+======================================== */
+.btn.loading {
+opacity: 0.7;
+pointer-events: none;
+position: relative;
+}
+
+.btn.loading span {
+visibility: hidden;
+}
+
+.btn.loading::after {
+content: '';
+position: absolute;
+width: 16px;
+height: 16px;
+border: 2px solid transparent;
+border-top-color: currentColor;
+border-radius: 50%;
+animation: spin 0.8s linear infinite;
+}
+
+.btn .spinner {
+width: 16px;
+height: 16px;
+border: 2px solid rgba(255, 255, 255, 0.3);
+border-top-color: #fff;
+border-radius: 50%;
+display: inline-block;
+margin-right: 0.5rem;
+animation: spin 0.8s linear infinite;
+}
+
+/* ========================================
+Hidden Utility
+======================================== */
+.hidden {
+display: none !important;
+}
+
+/* ========================================
+Auth Form Enhancements
+======================================== */
+.form-group input.error {
+border-color: #ff6b6b !important;
+box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.1);
+}
+
+.form-error {
+color: #ff6b6b;
+font-size: 0.8rem;
+margin-top: 0.25rem;
+display: none;
+}
+
+.form-error:not(:empty) {
+display: block;
+}
+
+/* ========================================
+Refresh Button
+======================================== */
+.refresh-btn {
+display: inline-flex;
+align-items: center;
+gap: 0.5rem;
+padding: 0.5rem 1rem;
+background: rgba(255, 255, 255, 0.05);
+border: 1px solid rgba(255, 255, 255, 0.1);
+border-radius: 6px;
+color: #8892a0;
+font-size: 0.85rem;
+cursor: pointer;
+transition: all 0.2s ease;
+}
+
+.refresh-btn:hover {
+background: rgba(255, 255, 255, 0.1);
+color: #00d4aa;
+border-color: #00d4aa;
+}
+
+.refresh-btn svg {
+width: 16px;
+height: 16px;
+}
+
+.refresh-btn.loading svg {
+animation: spin 1s linear infinite;
+}
+
+/* ========================================
+Responsive Adjustments
+======================================== */
+@media (max-width: 768px) {
+.toast {
+left: 20px;
+right: 20px;
+max-width: none;
+}
+}

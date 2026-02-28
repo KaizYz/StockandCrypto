@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import math
 import os
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import func, or_
@@ -53,7 +55,9 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
-    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+    updated_at = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
     last_login_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -78,7 +82,9 @@ class Note(db.Model):
     note_type = db.Column(db.String(16), nullable=False, default="NOTE")
     is_public = db.Column(db.Boolean, nullable=False, default=False, index=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
-    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+    updated_at = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
     user = db.relationship("User", backref=db.backref("notes", lazy=True))
 
     def to_dict(self, include_author: bool = False) -> dict[str, Any]:
@@ -211,22 +217,186 @@ def _require_auth_user(app: Flask) -> tuple[User | None, Any | None]:
     return user, None
 
 
+# ==================== Data Helper Functions ====================
+
+def _get_data_path() -> Path:
+    """Get the data/processed directory path."""
+    return Path(__file__).resolve().parents[2] / "data" / "processed"
+
+
+def _safe_float(value: Any) -> float | None:
+    """Safely convert value to float, return None if NaN or invalid."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_prediction_fields(row: dict[str, Any], current_price: float | None = None) -> dict[str, Any]:
+    """Normalize prediction row to standard format for frontend."""
+    # Get p_up and p_down
+    p_up = _safe_float(row.get("p_up"))
+    p_down = _safe_float(row.get("p_down"))
+    
+    # Get confidence (normalize to 0-1 if percentage)
+    confidence = _safe_float(row.get("confidence_score"))
+    if confidence is not None and confidence > 1:
+        confidence = confidence / 100
+    
+    # Get action
+    action = row.get("policy_action") or row.get("action") or "Flat"
+    
+    # Get target prices
+    target_price_q10 = _safe_float(row.get("target_price_q10"))
+    target_price_q50 = _safe_float(row.get("target_price_q50"))
+    target_price_q90 = _safe_float(row.get("target_price_q90"))
+    
+    # If target prices not directly available, calculate from change percentages
+    price = current_price or _safe_float(row.get("current_price"))
+    if price is not None:
+        q10_change = _safe_float(row.get("q10_change_pct"))
+        q50_change = _safe_float(row.get("q50_change_pct"))
+        q90_change = _safe_float(row.get("q90_change_pct"))
+        
+        if target_price_q10 is None and q10_change is not None:
+            target_price_q10 = round(price * (1 + q10_change), 4)
+        if target_price_q50 is None and q50_change is not None:
+            target_price_q50 = round(price * (1 + q50_change), 4)
+        if target_price_q90 is None and q90_change is not None:
+            target_price_q90 = round(price * (1 + q90_change), 4)
+    
+    # Build normalized result
+    return {
+        "symbol": row.get("symbol", ""),
+        "action": action,
+        "p_up": round(p_up, 4) if p_up is not None else None,
+        "p_down": round(p_down, 4) if p_down is not None else None,
+        "confidence": round(confidence, 4) if confidence is not None else None,
+        "current_price": price,
+        "target_price_q10": target_price_q10,
+        "target_price_q50": target_price_q50,
+        "target_price_q90": target_price_q90,
+        "horizon": row.get("horizon", ""),
+        "session_name": row.get("session_name", ""),
+        "trend_label": row.get("trend_label", ""),
+        "volatility_score": _safe_float(row.get("volatility_score")),
+        "risk_level": row.get("risk_level", ""),
+        # Additional useful fields
+        "q10_change_pct": _safe_float(row.get("q10_change_pct")),
+        "q50_change_pct": _safe_float(row.get("q50_change_pct")),
+        "q90_change_pct": _safe_float(row.get("q90_change_pct")),
+        "exchange": row.get("exchange", ""),
+        "market_type": row.get("market_type", ""),
+        "forecast_generated_at": row.get("forecast_generated_at_bj") or row.get("timestamp_utc", ""),
+        "policy_reason": row.get("policy_reason", ""),
+        "sample_size": row.get("sample_size"),
+    }
+
+
+def _read_csv_with_headers(csv_path: Path, limit: int = 100, symbol_filter: str | None = None) -> list[dict[str, Any]]:
+    """Read CSV file and return list of dicts with proper type conversion."""
+    if not csv_path.exists():
+        return []
+    rows = []
+    try:
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for i, row in enumerate(reader):
+                if symbol_filter and row.get("symbol", "").upper() != symbol_filter.upper():
+                    continue
+                if len(rows) >= limit:
+                    break
+                converted_row = {}
+                for key, value in row.items():
+                    if value == "" or value.lower() == "nan":
+                        converted_row[key] = None
+                    else:
+                        try:
+                            converted_row[key] = float(value) if "." in value else int(value)
+                        except ValueError:
+                            converted_row[key] = value
+                rows.append(converted_row)
+    except Exception:
+        pass
+    return rows
+
+
+def _get_latest_csv_rows(csv_path: Path, count: int = 50, symbol_filter: str | None = None) -> list[dict[str, Any]]:
+    """Get the latest N rows from a CSV file, optionally filtered by symbol."""
+    if not csv_path.exists():
+        return []
+    rows = []
+    try:
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            all_rows = list(reader)
+            if symbol_filter:
+                all_rows = [r for r in all_rows if r.get("symbol", "").upper() == symbol_filter.upper()]
+            recent_rows = all_rows[-count:] if len(all_rows) > count else all_rows
+            for row in recent_rows:
+                converted_row = {}
+                for key, value in row.items():
+                    if value == "" or value.lower() == "nan":
+                        converted_row[key] = None
+                    else:
+                        try:
+                            converted_row[key] = float(value) if "." in value else int(value)
+                        except ValueError:
+                            converted_row[key] = value
+                rows.append(converted_row)
+    except Exception:
+        pass
+    return rows
+
+
+def _get_current_prices() -> dict[str, float]:
+    """Load current prices from market snapshot."""
+    data_path = _get_data_path()
+    current_prices: dict[str, float] = {}
+    snapshot_file = data_path / "market_snapshot.json"
+    if snapshot_file.exists():
+        try:
+            with open(snapshot_file, "r", encoding="utf-8") as f:
+                snapshot = json.load(f)
+            for row in snapshot.get("rows", []):
+                sym = row.get("symbol", "").upper()
+                price = _safe_float(row.get("current_price"))
+                if price is not None:
+                    current_prices[sym] = price
+        except Exception:
+            pass
+    return current_prices
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
+    CORS(app)
     app.config["SQLALCHEMY_DATABASE_URI"] = _notes_db_uri()
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["NOTES_AUTH_SECRET"] = os.getenv("NOTES_AUTH_SECRET", "notes-dev-secret-change-me")
     app.config["NOTES_TOKEN_TTL_SECONDS"] = int(os.getenv("NOTES_TOKEN_TTL_SECONDS", "604800"))
     db.init_app(app)
+
     with app.app_context():
         db.create_all()
 
+    # ==================== Health Check ====================
+
     @app.get("/api/health")
     def health() -> Any:
+        """Health check endpoint."""
         return jsonify({"ok": True, "service": "notes-api"})
+
+    # ==================== Authentication ====================
 
     @app.post("/api/auth/register")
     def register() -> Any:
+        """Register a new user."""
         payload = _json_payload()
         username = _normalize_username(payload.get("username"))
         email = _normalize_email(payload.get("email"))
@@ -258,6 +428,7 @@ def create_app() -> Flask:
 
     @app.post("/api/auth/login")
     def login() -> Any:
+        """Login and get JWT token."""
         payload = _json_payload()
         username = _normalize_username(payload.get("username"))
         email = _normalize_email(payload.get("email"))
@@ -280,25 +451,27 @@ def create_app() -> Flask:
         user.last_login_at = _utcnow()
         db.session.commit()
         token = _issue_token(app, user.id)
-        return jsonify(
-            {
-                "ok": True,
-                "token": token,
-                "token_type": "Bearer",
-                "expires_in": int(app.config["NOTES_TOKEN_TTL_SECONDS"]),
-                "user": user.to_public_dict(),
-            }
-        )
+        return jsonify({
+            "ok": True,
+            "token": token,
+            "token_type": "Bearer",
+            "expires_in": int(app.config["NOTES_TOKEN_TTL_SECONDS"]),
+            "user": user.to_public_dict(),
+        })
 
     @app.get("/api/auth/me")
     def me() -> Any:
+        """Get current user info (requires authentication)."""
         user, auth_err = _require_auth_user(app)
         if auth_err is not None:
             return auth_err
         return jsonify({"ok": True, "user": user.to_public_dict()})
 
+    # ==================== Notes API ====================
+
     @app.post("/api/notes")
     def create_note() -> Any:
+        """Create a new note (requires authentication)."""
         user, auth_err = _require_auth_user(app)
         if auth_err is not None:
             return auth_err
@@ -326,6 +499,7 @@ def create_app() -> Flask:
 
     @app.get("/api/notes")
     def list_notes() -> Any:
+        """List user's notes (requires authentication)."""
         user, auth_err = _require_auth_user(app)
         if auth_err is not None:
             return auth_err
@@ -340,21 +514,16 @@ def create_app() -> Flask:
                     func.lower(Note.tags_csv).like(f"%{q}%"),
                 )
             )
-        items = (
-            query.order_by(Note.updated_at.desc(), Note.id.desc())
-            .limit(page_size)
-            .all()
-        )
-        return jsonify(
-            {
-                "ok": True,
-                "items": [item.to_dict(include_author=False) for item in items],
-                "count": len(items),
-            }
-        )
+        items = query.order_by(Note.updated_at.desc(), Note.id.desc()).limit(page_size).all()
+        return jsonify({
+            "ok": True,
+            "items": [item.to_dict(include_author=False) for item in items],
+            "count": len(items),
+        })
 
     @app.get("/api/notes/public")
     def list_public_notes() -> Any:
+        """List public notes."""
         q = str(request.args.get("q") or "").strip().lower()
         page_size = _parse_page_size(request.args.get("page_size"), default=10, max_value=100)
         query = Note.query.filter(Note.is_public.is_(True))
@@ -366,80 +535,57 @@ def create_app() -> Flask:
                     func.lower(Note.tags_csv).like(f"%{q}%"),
                 )
             )
-        items = (
-            query.order_by(Note.updated_at.desc(), Note.id.desc())
-            .limit(page_size)
-            .all()
-        )
-        return jsonify(
-            {
-                "ok": True,
-                "items": [item.to_dict(include_author=True) for item in items],
-                "count": len(items),
-            }
-        )
+        items = query.order_by(Note.updated_at.desc(), Note.id.desc()).limit(page_size).all()
+        return jsonify({
+            "ok": True,
+            "items": [item.to_dict(include_author=True) for item in items],
+            "count": len(items),
+        })
 
-    # ==================== Market API for Homepage ====================
-
-    def _get_data_path() -> Path:
-        """Get the data/processed directory path."""
-        return Path(__file__).resolve().parents[2] / "data" / "processed"
-
-    def _safe_float(value: Any) -> float | None:
-        """Safely convert value to float, return None if NaN or invalid."""
-        if value is None:
-            return None
-        try:
-            f = float(value)
-            if math.isnan(f) or math.isinf(f):
-                return None
-            return f
-        except (TypeError, ValueError):
-            return None
+    # ==================== Market Overview ====================
 
     @app.get("/api/market/overview")
     def market_overview() -> Any:
-        """Return market overview with BTC/ETH/SOL prices and 24h changes."""
+        """
+        Get market overview with BTC/ETH/SOL prices and 24h changes.
+        Returns: { "ok": true, "assets": [...], "generated_at_utc": "...", "timestamp": "..." }
+        """
         data_path = _get_data_path() / "market_snapshot.json"
         if not data_path.exists():
             return jsonify({"ok": False, "error": "market_data_not_found"}), 503
-
         try:
             with open(data_path, "r", encoding="utf-8") as f:
                 snapshot = json.load(f)
         except Exception as e:
             return jsonify({"ok": False, "error": f"failed_to_read_data: {e}"}), 500
 
-        # Filter for main crypto assets and valid data
         target_assets = {"btc", "eth", "sol"}
         assets = []
         for row in snapshot.get("rows", []):
             instrument_id = row.get("instrument_id", "").lower()
             if instrument_id in target_assets:
-                current_price = _safe_float(row.get("current_price"))
-                predicted_change = _safe_float(row.get("predicted_change_pct"))
                 assets.append({
                     "symbol": row.get("symbol", ""),
                     "name": row.get("name", ""),
                     "instrument_id": instrument_id,
-                    "current_price": current_price,
-                    "predicted_change_pct": predicted_change,
+                    "current_price": _safe_float(row.get("current_price")),
+                    "predicted_change_pct": _safe_float(row.get("predicted_change_pct")),
                     "market": row.get("market", "crypto"),
-                    "error": row.get("error_message") if row.get("error_message") and not current_price else None,
+                    "q10_change_pct": _safe_float(row.get("q10_change_pct")),
+                    "q50_change_pct": _safe_float(row.get("q50_change_pct")),
+                    "q90_change_pct": _safe_float(row.get("q90_change_pct")),
+                    "error": row.get("error_message") if row.get("error_message") and not row.get("current_price") else None,
                 })
 
-        # If no crypto found, include all assets as fallback
         if not assets:
-            for row in snapshot.get("rows", [])[:5]:  # Limit to 5 assets
-                current_price = _safe_float(row.get("current_price"))
+            for row in snapshot.get("rows", [])[:5]:
                 assets.append({
                     "symbol": row.get("symbol", ""),
                     "name": row.get("name", ""),
                     "instrument_id": row.get("instrument_id", ""),
-                    "current_price": current_price,
+                    "current_price": _safe_float(row.get("current_price")),
                     "predicted_change_pct": _safe_float(row.get("predicted_change_pct")),
                     "market": row.get("market", ""),
-                    "error": row.get("error_message") if row.get("error_message") and not current_price else None,
                 })
 
         return jsonify({
@@ -449,97 +595,527 @@ def create_app() -> Flask:
             "timestamp": _utcnow().isoformat(),
         })
 
-    @app.get("/api/predictions/summary")
-    def predictions_summary() -> Any:
-        """Return latest prediction signals summary."""
-        data_path = _get_data_path() / "predictions_latest_summary.json"
-        if not data_path.exists():
-            return jsonify({"ok": False, "error": "predictions_data_not_found"}), 503
+    # ==================== Crypto API ====================
 
+    @app.get("/api/crypto/predictions")
+    def crypto_predictions() -> Any:
+        """
+        Get crypto predictions for BTC/ETH/SOL.
+        
+        Query params:
+            symbol: Filter by symbol (e.g., BTCUSDT)
+            limit: Max number of results (default 100, max 500)
+            normalized: Return normalized format (default true)
+        
+        Returns: { "ok": true, "predictions": [...], "count": N, "timestamp": "..." }
+        """
+        symbol_filter = request.args.get("symbol", "").strip().upper()
         try:
-            with open(data_path, "r", encoding="utf-8") as f:
-                predictions = json.load(f)
-        except Exception as e:
-            return jsonify({"ok": False, "error": f"failed_to_read_data: {e}"}), 500
+            limit = min(int(request.args.get("limit", "100")), 500)
+        except ValueError:
+            limit = 100
+        
+        normalized = request.args.get("normalized", "true").lower() != "false"
+        
+        data_path = _get_data_path()
+        current_prices = _get_current_prices()
+        
+        # Try session_forecast_blocks first (has all required fields)
+        session_file = data_path / "session_forecast_blocks.csv"
+        if session_file.exists():
+            rows = _read_csv_with_headers(session_file, limit=limit * 2, symbol_filter=symbol_filter if symbol_filter else None)
+            crypto_rows = [row for row in rows if row.get("symbol", "").upper() in ["BTCUSDT", "ETHUSDT", "SOLUSDT"]]
+            if crypto_rows:
+                if normalized:
+                    predictions = [_normalize_prediction_fields(row, current_prices.get(row.get("symbol", "").upper())) for row in crypto_rows[:limit]]
+                else:
+                    predictions = crypto_rows[:limit]
+                return jsonify({
+                    "ok": True,
+                    "predictions": predictions,
+                    "count": len(predictions),
+                    "timestamp": _utcnow().isoformat(),
+                    "source": "session_forecast_blocks"
+                })
+        
+        # Fallback to policy_signals_hourly
+        policy_file = data_path / "policy_signals_hourly.csv"
+        if policy_file.exists():
+            rows = _get_latest_csv_rows(policy_file, limit * 2, symbol_filter if symbol_filter else None)
+            crypto_rows = [row for row in rows if row.get("market", "").lower() == "crypto" or row.get("symbol", "").upper() in ["BTCUSDT", "ETHUSDT", "SOLUSDT"]]
+            if crypto_rows:
+                if normalized:
+                    predictions = [_normalize_prediction_fields(row, current_prices.get(row.get("symbol", "").upper())) for row in crypto_rows[:limit]]
+                else:
+                    predictions = crypto_rows[:limit]
+                return jsonify({
+                    "ok": True,
+                    "predictions": predictions,
+                    "count": len(predictions),
+                    "timestamp": _utcnow().isoformat(),
+                    "source": "policy_signals_hourly"
+                })
+        
+        # Fallback to predictions_hourly
+        hourly_file = data_path / "predictions_hourly.csv"
+        if hourly_file.exists():
+            rows = _get_latest_csv_rows(hourly_file, limit, symbol_filter if symbol_filter else None)
+            if rows:
+                return jsonify({
+                    "ok": True,
+                    "predictions": rows,
+                    "count": len(rows),
+                    "timestamp": _utcnow().isoformat(),
+                    "source": "predictions_hourly"
+                })
+        
+        return jsonify({"ok": False, "error": "crypto_predictions_not_found"}), 503
 
-        # Extract hourly and daily summaries
-        hourly = predictions.get("hourly", {}).get("latest", {})
-        daily = predictions.get("daily", {}).get("latest", {})
+    @app.get("/api/crypto/history/<symbol>")
+    def crypto_history(symbol: str) -> Any:
+        """
+        Get historical price data for a crypto symbol.
+        
+        Args:
+            symbol: Crypto symbol (e.g., BTCUSDT, ETHUSDT, SOLUSDT)
+        
+        Query params:
+            limit: Number of bars (default 100, max 1000)
+            interval: Time interval (hourly/daily, default hourly)
+        
+        Returns: { "ok": true, "symbol": "...", "bars": [...], "count": N }
+        """
+        symbol = symbol.upper().strip()
+        try:
+            limit = min(int(request.args.get("limit", "100")), 1000)
+        except ValueError:
+            limit = 100
+        
+        interval = request.args.get("interval", "hourly").lower()
+        
+        data_path = _get_data_path()
+        
+        # Try features file first (has OHLCV data)
+        if interval == "daily":
+            features_file = data_path / "features_daily.csv"
+        else:
+            features_file = data_path / "features_hourly.csv"
+        
+        if features_file.exists():
+            rows = _read_csv_with_headers(features_file, limit=limit * 2)
+            # Normalize symbol for comparison (e.g., BTCUSDT -> BTC, SOLUSDT -> SOL)
+            base_symbol = symbol.replace("USDT", "").replace("USD", "").replace("USDC", "").upper()
+            # Filter by symbol if available
+            symbol_rows = [row for row in rows if row.get("symbol", "").upper() == base_symbol or row.get("symbol", "").upper() == symbol]
+            
+            if symbol_rows:
+                bars = []
+                for row in symbol_rows[-limit:]:
+                    bar = {
+                        "timestamp": row.get("timestamp_utc") or row.get("timestamp_market") or row.get("timestamp", ""),
+                        "close": _safe_float(row.get("close")),
+                        "volume": _safe_float(row.get("volume")),
+                    }
+                    # Add OHLC if available
+                    if row.get("open"):
+                        bar["open"] = _safe_float(row.get("open"))
+                    if row.get("high"):
+                        bar["high"] = _safe_float(row.get("high"))
+                    if row.get("low"):
+                        bar["low"] = _safe_float(row.get("low"))
+                    bars.append(bar)
+                return jsonify({
+                    "ok": True,
+                    "symbol": symbol,
+                    "bars": bars,
+                    "count": len(bars),
+                    "interval": interval,
+                    "timestamp": _utcnow().isoformat()
+                })
+        
+        # Fallback to predictions file for price history
+        if interval == "daily":
+            pred_file = data_path / "predictions_daily.csv"
+        else:
+            pred_file = data_path / "predictions_hourly.csv"
+        
+        if pred_file.exists():
+            rows = _get_latest_csv_rows(pred_file, limit)
+            bars = []
+            for row in rows:
+                bars.append({
+                    "timestamp": row.get("timestamp_utc") or row.get("timestamp_market", ""),
+                    "close": _safe_float(row.get("close")),
+                    "p_up": _safe_float(row.get("dir_h1_p_up")),
+                    "p_down": _safe_float(row.get("dir_h1_p_down")),
+                })
+            return jsonify({
+                "ok": True,
+                "symbol": symbol,
+                "bars": bars,
+                "count": len(bars),
+                "interval": interval,
+                "timestamp": _utcnow().isoformat(),
+                "source": "predictions"
+            })
+        
+        return jsonify({"ok": False, "error": "history_data_not_found"}), 503
 
-        summary = {
-            "hourly": {
-                "timestamp_utc": hourly.get("timestamp_utc"),
-                "close": _safe_float(hourly.get("close")),
-                "direction_prediction": hourly.get("dir_h1_pred"),
-                "prob_up": _safe_float(hourly.get("dir_h1_p_up")),
-                "prob_down": _safe_float(hourly.get("dir_h1_p_down")),
-                "return_q10": _safe_float(hourly.get("ret_h1_q0.1")),
-                "return_q50": _safe_float(hourly.get("ret_h1_q0.5")),
-                "return_q90": _safe_float(hourly.get("ret_h1_q0.9")),
-            },
-            "daily": {
-                "timestamp_utc": daily.get("timestamp_utc"),
-                "close": _safe_float(daily.get("close")),
-                "direction_prediction": daily.get("dir_h1_pred"),
-                "prob_up": _safe_float(daily.get("dir_h1_p_up")),
-                "prob_down": _safe_float(daily.get("dir_h1_p_down")),
-                "return_q10": _safe_float(daily.get("ret_h1_q0.1")),
-                "return_q50": _safe_float(daily.get("ret_h1_q0.5")),
-                "return_q90": _safe_float(daily.get("ret_h1_q0.9")),
-            },
-        }
+    @app.get("/api/crypto/symbols")
+    def crypto_symbols() -> Any:
+        """Get list of available crypto symbols."""
+        symbols = [
+            {"symbol": "BTCUSDT", "name": "Bitcoin", "instrument_id": "btc"},
+            {"symbol": "ETHUSDT", "name": "Ethereum", "instrument_id": "eth"},
+            {"symbol": "SOLUSDT", "name": "Solana", "instrument_id": "sol"},
+        ]
+        data_path = _get_data_path()
+        snapshot_file = data_path / "market_snapshot.json"
+        if snapshot_file.exists():
+            try:
+                with open(snapshot_file, "r", encoding="utf-8") as f:
+                    snapshot = json.load(f)
+                crypto_assets = [row for row in snapshot.get("rows", []) if row.get("market") == "crypto"]
+                if crypto_assets:
+                    symbols = [{
+                        "symbol": row.get("symbol", ""),
+                        "name": row.get("name", ""),
+                        "instrument_id": row.get("instrument_id", ""),
+                        "current_price": _safe_float(row.get("current_price")),
+                    } for row in crypto_assets]
+            except Exception:
+                pass
+        return jsonify({"ok": True, "symbols": symbols, "count": len(symbols), "timestamp": _utcnow().isoformat()})
 
+    @app.get("/api/crypto/signal/<symbol>")
+    def crypto_signal(symbol: str) -> Any:
+        """Get trading signal for a specific crypto symbol."""
+        symbol = symbol.upper().strip()
+        data_path = _get_data_path()
+        current_prices = _get_current_prices()
+        current_price = current_prices.get(symbol)
+        
+        # Get signal data from session forecast
+        session_file = data_path / "session_forecast_blocks.csv"
+        if session_file.exists():
+            rows = _read_csv_with_headers(session_file, limit=500)
+            symbol_rows = [row for row in rows if row.get("symbol", "").upper() == symbol]
+            if symbol_rows:
+                latest = symbol_rows[-1]
+                normalized = _normalize_prediction_fields(latest, current_price)
+                return jsonify({
+                    "ok": True,
+                    "symbol": symbol,
+                    "signal": normalized,
+                    "timestamp": _utcnow().isoformat(),
+                })
+        
+        # Return default signal if no data found
         return jsonify({
             "ok": True,
-            "summary": summary,
-            "model_versions": {
-                "hourly": predictions.get("hourly", {}).get("model_version"),
-                "daily": predictions.get("daily", {}).get("model_version"),
+            "symbol": symbol,
+            "signal": {
+                "action": "Flat",
+                "confidence": None,
+                "p_up": None,
+                "p_down": None,
+                "current_price": current_price,
+                "target_price_q50": None,
             },
             "timestamp": _utcnow().isoformat(),
+            "message": "No signal found for symbol"
         })
 
-    @app.get("/api/system/status")
-    def system_status() -> Any:
-        """Return system status and last update times."""
+    # ==================== CN Equity API ====================
+
+    @app.get("/api/cn/predictions")
+    def cn_predictions() -> Any:
+        """
+        Get A-share (Chinese stock) predictions.
+        
+        Query params:
+            symbol: Filter by symbol
+            limit: Max results (default 100)
+        
+        Returns: { "ok": true, "predictions": [...], "count": N }
+        """
+        symbol_filter = request.args.get("symbol", "").strip().upper()
+        try:
+            limit = min(int(request.args.get("limit", "100")), 500)
+        except ValueError:
+            limit = 100
+        
         data_path = _get_data_path()
+        current_prices = _get_current_prices()
+        
+        snapshot_file = data_path / "market_snapshot.json"
+        if snapshot_file.exists():
+            try:
+                with open(snapshot_file, "r", encoding="utf-8") as f:
+                    snapshot = json.load(f)
+                cn_assets = [row for row in snapshot.get("rows", []) if row.get("market") == "cn_equity"]
+                if cn_assets:
+                    predictions = []
+                    for row in cn_assets:
+                        sym = row.get("symbol", "").upper()
+                        if symbol_filter and sym != symbol_filter:
+                            continue
+                        predictions.append({
+                            "symbol": row.get("symbol", ""),
+                            "name": row.get("name", ""),
+                            "instrument_id": row.get("instrument_id", ""),
+                            "current_price": _safe_float(row.get("current_price")),
+                            "predicted_change_pct": _safe_float(row.get("predicted_change_pct")),
+                            "q10_change_pct": _safe_float(row.get("q10_change_pct")),
+                            "q50_change_pct": _safe_float(row.get("q50_change_pct")),
+                            "q90_change_pct": _safe_float(row.get("q90_change_pct")),
+                        })
+                        if len(predictions) >= limit:
+                            break
+                    return jsonify({
+                        "ok": True,
+                        "predictions": predictions,
+                        "count": len(predictions),
+                        "timestamp": _utcnow().isoformat()
+                    })
+            except Exception:
+                pass
+        
+        daily_file = data_path / "predictions_daily.csv"
+        if daily_file.exists():
+            rows = _get_latest_csv_rows(daily_file, limit, symbol_filter if symbol_filter else None)
+            return jsonify({
+                "ok": True,
+                "predictions": rows,
+                "count": len(rows),
+                "timestamp": _utcnow().isoformat()
+            })
+        
+        return jsonify({"ok": False, "error": "cn_predictions_not_found"}), 503
 
-        status = {
-            "ok": True,
-            "service": "StockandCrypto API",
-            "version": "1.0.0",
-            "timestamp": _utcnow().isoformat(),
-        }
-
-        # Check data files existence and modification times
-        files_status = {}
-
-        market_file = data_path / "market_snapshot.json"
-        if market_file.exists():
-            stat = market_file.stat()
-            files_status["market_snapshot"] = {
-                "exists": True,
-                "size_bytes": stat.st_size,
-                "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            }
+    @app.get("/api/cn/history/<symbol>")
+    def cn_history(symbol: str) -> Any:
+        """Get historical price data for a CN stock symbol."""
+        symbol = symbol.upper().strip()
+        try:
+            limit = min(int(request.args.get("limit", "100")), 1000)
+        except ValueError:
+            limit = 100
+        
+        interval = request.args.get("interval", "daily").lower()
+        data_path = _get_data_path()
+        
+        if interval == "daily":
+            features_file = data_path / "features_daily.csv"
         else:
-            files_status["market_snapshot"] = {"exists": False}
+            features_file = data_path / "features_hourly.csv"
+        
+        if features_file.exists():
+            rows = _read_csv_with_headers(features_file, limit=limit * 2)
+            bars = []
+            for row in rows[-limit:]:
+                bars.append({
+                    "timestamp": row.get("timestamp_utc") or row.get("timestamp_market", ""),
+                    "close": _safe_float(row.get("close")),
+                })
+            return jsonify({
+                "ok": True,
+                "symbol": symbol,
+                "bars": bars,
+                "count": len(bars),
+                "interval": interval,
+                "timestamp": _utcnow().isoformat()
+            })
+        
+        return jsonify({"ok": False, "error": "cn_history_not_found"}), 503
 
-        predictions_file = data_path / "predictions_latest_summary.json"
-        if predictions_file.exists():
-            stat = predictions_file.stat()
-            files_status["predictions_summary"] = {
-                "exists": True,
-                "size_bytes": stat.st_size,
-                "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            }
+    @app.get("/api/cn/symbols")
+    def cn_symbols() -> Any:
+        """Get list of available A-share symbols."""
+        symbols = [{"symbol": "600519.SS", "name": "贵州茅台", "instrument_id": "moutai"}]
+        data_path = _get_data_path()
+        snapshot_file = data_path / "market_snapshot.json"
+        if snapshot_file.exists():
+            try:
+                with open(snapshot_file, "r", encoding="utf-8") as f:
+                    snapshot = json.load(f)
+                cn_assets = [row for row in snapshot.get("rows", []) if row.get("market") == "cn_equity"]
+                if cn_assets:
+                    symbols = [{
+                        "symbol": row.get("symbol", ""),
+                        "name": row.get("name", ""),
+                        "instrument_id": row.get("instrument_id", ""),
+                        "current_price": _safe_float(row.get("current_price")),
+                    } for row in cn_assets]
+            except Exception:
+                pass
+        return jsonify({"ok": True, "symbols": symbols, "count": len(symbols), "timestamp": _utcnow().isoformat()})
+
+    # ==================== US Equity API ====================
+
+    @app.get("/api/us/predictions")
+    def us_predictions() -> Any:
+        """
+        Get US stock predictions.
+        
+        Query params:
+            symbol: Filter by symbol
+            limit: Max results (default 100)
+        
+        Returns: { "ok": true, "predictions": [...], "count": N }
+        """
+        symbol_filter = request.args.get("symbol", "").strip().upper()
+        try:
+            limit = min(int(request.args.get("limit", "100")), 500)
+        except ValueError:
+            limit = 100
+        
+        data_path = _get_data_path()
+        
+        snapshot_file = data_path / "market_snapshot.json"
+        if snapshot_file.exists():
+            try:
+                with open(snapshot_file, "r", encoding="utf-8") as f:
+                    snapshot = json.load(f)
+                us_assets = [row for row in snapshot.get("rows", []) if row.get("market") == "us_equity"]
+                if us_assets:
+                    predictions = []
+                    for row in us_assets:
+                        sym = row.get("symbol", "").upper()
+                        if symbol_filter and sym != symbol_filter:
+                            continue
+                        predictions.append({
+                            "symbol": row.get("symbol", ""),
+                            "name": row.get("name", ""),
+                            "instrument_id": row.get("instrument_id", ""),
+                            "current_price": _safe_float(row.get("current_price")),
+                            "predicted_change_pct": _safe_float(row.get("predicted_change_pct")),
+                            "q10_change_pct": _safe_float(row.get("q10_change_pct")),
+                            "q50_change_pct": _safe_float(row.get("q50_change_pct")),
+                            "q90_change_pct": _safe_float(row.get("q90_change_pct")),
+                        })
+                        if len(predictions) >= limit:
+                            break
+                    return jsonify({
+                        "ok": True,
+                        "predictions": predictions,
+                        "count": len(predictions),
+                        "timestamp": _utcnow().isoformat()
+                    })
+            except Exception:
+                pass
+        
+        daily_file = data_path / "predictions_daily.csv"
+        if daily_file.exists():
+            rows = _get_latest_csv_rows(daily_file, limit, symbol_filter if symbol_filter else None)
+            return jsonify({
+                "ok": True,
+                "predictions": rows,
+                "count": len(rows),
+                "timestamp": _utcnow().isoformat()
+            })
+        
+        return jsonify({"ok": False, "error": "us_predictions_not_found"}), 503
+
+    @app.get("/api/us/history/<symbol>")
+    def us_history(symbol: str) -> Any:
+        """Get historical price data for a US stock symbol."""
+        symbol = symbol.upper().strip()
+        try:
+            limit = min(int(request.args.get("limit", "100")), 1000)
+        except ValueError:
+            limit = 100
+        
+        interval = request.args.get("interval", "daily").lower()
+        data_path = _get_data_path()
+        
+        if interval == "daily":
+            features_file = data_path / "features_daily.csv"
         else:
-            files_status["predictions_summary"] = {"exists": False}
+            features_file = data_path / "features_hourly.csv"
+        
+        if features_file.exists():
+            rows = _read_csv_with_headers(features_file, limit=limit * 2)
+            bars = []
+            for row in rows[-limit:]:
+                bars.append({
+                    "timestamp": row.get("timestamp_utc") or row.get("timestamp_market", ""),
+                    "close": _safe_float(row.get("close")),
+                })
+            return jsonify({
+                "ok": True,
+                "symbol": symbol,
+                "bars": bars,
+                "count": len(bars),
+                "interval": interval,
+                "timestamp": _utcnow().isoformat()
+            })
+        
+        return jsonify({"ok": False, "error": "us_history_not_found"}), 503
 
-        status["data_files"] = files_status
-        status["database"] = {"connected": True}
+    @app.get("/api/us/symbols")
+    def us_symbols() -> Any:
+        """Get list of available US stock symbols."""
+        symbols = [{"symbol": "AAPL", "name": "Apple Inc.", "instrument_id": "aapl"}]
+        data_path = _get_data_path()
+        snapshot_file = data_path / "market_snapshot.json"
+        if snapshot_file.exists():
+            try:
+                with open(snapshot_file, "r", encoding="utf-8") as f:
+                    snapshot = json.load(f)
+                us_assets = [row for row in snapshot.get("rows", []) if row.get("market") == "us_equity"]
+                if us_assets:
+                    symbols = [{
+                        "symbol": row.get("symbol", ""),
+                        "name": row.get("name", ""),
+                        "instrument_id": row.get("instrument_id", ""),
+                        "current_price": _safe_float(row.get("current_price")),
+                    } for row in us_assets]
+            except Exception:
+                pass
+        return jsonify({"ok": True, "symbols": symbols, "count": len(symbols), "timestamp": _utcnow().isoformat()})
 
-        return jsonify(status)
+    # ==================== Session Forecast API ====================
+
+    @app.get("/api/session/crypto")
+    def session_crypto() -> Any:
+        """Get crypto trading session forecasts."""
+        data_path = _get_data_path()
+        session_file = data_path / "session_forecast_blocks.csv"
+        if session_file.exists():
+            rows = _read_csv_with_headers(session_file, limit=500)
+            crypto_rows = [row for row in rows if row.get("symbol", "").upper() in ["BTCUSDT", "ETHUSDT", "SOLUSDT"]]
+            if crypto_rows:
+                return jsonify({"ok": True, "sessions": crypto_rows, "timestamp": _utcnow().isoformat()})
+        hourly_file = data_path / "session_forecast_hourly.csv"
+        if hourly_file.exists():
+            rows = _get_latest_csv_rows(hourly_file, 50)
+            return jsonify({"ok": True, "sessions": rows, "timestamp": _utcnow().isoformat()})
+        return jsonify({"ok": False, "error": "crypto_session_data_not_found"}), 503
+
+    @app.get("/api/session/index")
+    def session_index() -> Any:
+        """Get index trading session forecasts."""
+        data_path = _get_data_path()
+        daily_file = data_path / "session_forecast_daily.csv"
+        if daily_file.exists():
+            rows = _get_latest_csv_rows(daily_file, 50)
+            return jsonify({"ok": True, "sessions": rows, "timestamp": _utcnow().isoformat()})
+        hourly_file = data_path / "session_forecast_hourly.csv"
+        if hourly_file.exists():
+            rows = _get_latest_csv_rows(hourly_file, 50)
+            return jsonify({"ok": True, "sessions": rows, "timestamp": _utcnow().isoformat()})
+        return jsonify({"ok": False, "error": "index_session_data_not_found"}), 503
+
+    # ==================== Error Handlers ====================
+
+    @app.errorhandler(404)
+    def not_found(error):
+        return jsonify({"ok": False, "error": "not_found"}), 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        return jsonify({"ok": False, "error": "internal_server_error"}), 500
 
     return app
 
