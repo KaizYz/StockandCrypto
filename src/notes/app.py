@@ -6,12 +6,17 @@ import json
 import math
 import os
 import re
+import sys
 import time
 from collections import defaultdict
 
 # ==================== Simple Cache Mechanism ====================
 _cache: dict[str, dict[str, Any]] = {}
 CACHE_TTL_SECONDS = 45  # Cache TTL for API responses
+UNIVERSE_CACHE_TTL_SECONDS = max(
+    300, int(os.getenv("SYMBOL_UNIVERSE_CACHE_TTL_SECONDS", "21600"))
+)
+_universe_cache: dict[str, dict[str, Any]] = {}
 
 def _cache_get(key: str) -> tuple[Any, bool]:
     """Get value from cache if not expired. Returns (value, found)."""
@@ -44,6 +49,18 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
+
+# Ensure project root is importable when running as:
+# python src/notes/app.py
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from src.markets.universe import get_universe_catalog, load_universe
+except Exception:
+    get_universe_catalog = None
+    load_universe = None
 
 db = SQLAlchemy()
 
@@ -322,6 +339,133 @@ def _safe_float(value: Any) -> float | None:
         return f
     except (TypeError, ValueError):
         return None
+
+
+def _universe_cache_get(key: str) -> tuple[Any, bool]:
+    entry = _universe_cache.get(key)
+    if not entry:
+        return None, False
+    ts = _safe_float(entry.get("timestamp"))
+    if ts is None or time.time() - ts > UNIVERSE_CACHE_TTL_SECONDS:
+        _universe_cache.pop(key, None)
+        return None, False
+    return entry.get("value"), True
+
+
+def _universe_cache_set(key: str, value: Any) -> None:
+    _universe_cache[key] = {"value": value, "timestamp": time.time()}
+
+
+def _universe_pool_priority(market_key: str, pool_keys: list[str]) -> list[str]:
+    defaults: dict[str, list[str]] = {
+        "crypto": ["top100_ex_stable", "top3"],
+        "cn_equity": ["csi300", "sse_composite"],
+        "us_equity": ["sp500", "nasdaq100", "dow30"],
+    }
+    preferred = defaults.get(market_key, [])
+    ordered = [p for p in preferred if p in pool_keys]
+    ordered.extend([p for p in pool_keys if p not in ordered])
+    return ordered
+
+
+def _normalize_universe_symbol(market_key: str, row: dict[str, Any]) -> str:
+    raw_symbol = str(row.get("symbol") or "").upper().strip()
+    raw_snapshot = str(row.get("snapshot_symbol") or "").upper().strip()
+    symbol = raw_symbol or raw_snapshot
+    if not symbol:
+        return ""
+
+    if market_key == "crypto":
+        if symbol.endswith(("USDT", "USDC", "USD")):
+            return symbol
+        if re.fullmatch(r"[A-Z0-9]{2,15}", symbol):
+            return f"{symbol}USDT"
+        return ""
+
+    if market_key == "cn_equity":
+        if symbol.endswith(".SS"):
+            return f"{symbol[:-3]}.SH"
+        return symbol
+
+    return symbol
+
+
+def _load_universe_symbols(
+    market: str,
+    *,
+    limit: int,
+    pool: str = "",
+) -> list[dict[str, Any]]:
+    market_key = _normalize_market_key(market)
+    if get_universe_catalog is None or load_universe is None:
+        return []
+
+    try:
+        catalog = get_universe_catalog()
+    except Exception:
+        return []
+
+    market_catalog = catalog.get(market_key, {}) if isinstance(catalog, dict) else {}
+    if not isinstance(market_catalog, dict) or not market_catalog:
+        return []
+
+    pool_tokens = [str(x).strip().lower() for x in str(pool or "").split(",") if str(x).strip()]
+    pool_keys = [p for p in pool_tokens if p in market_catalog] if pool_tokens else []
+    if not pool_keys:
+        pool_keys = _universe_pool_priority(market_key, list(market_catalog.keys()))
+    if not pool_keys:
+        return []
+
+    cache_key = _cache_key("universe_symbols", market_key, ",".join(pool_keys), int(limit))
+    cached, found = _universe_cache_get(cache_key)
+    if found and isinstance(cached, list):
+        return cached
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for pool_key in pool_keys:
+        try:
+            frame = load_universe(market_key, pool_key)
+        except Exception:
+            continue
+        if frame is None:
+            continue
+        rows = frame.to_dict(orient="records") if hasattr(frame, "to_dict") else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = _normalize_universe_symbol(market_key, row)
+            if not symbol:
+                continue
+            dedup_key = _symbol_key(symbol)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
+            name = str(row.get("name") or row.get("display") or symbol).strip() or symbol
+            if market_key == "crypto":
+                instrument_id = str(row.get("instrument_id") or dedup_key.lower())
+            else:
+                instrument_id = str(row.get("instrument_id") or symbol.lower().replace(".", "_"))
+
+            out.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "instrument_id": instrument_id,
+                    "current_price": _safe_float(row.get("current_price")),
+                }
+            )
+            if len(out) >= limit:
+                break
+        if len(out) >= limit:
+            break
+
+    if market_key in {"cn_equity", "us_equity"}:
+        out.sort(key=lambda r: str(r.get("symbol") or ""))
+
+    _universe_cache_set(cache_key, out)
+    return out
 
 
 def _normalize_prediction_fields(row: dict[str, Any], current_price: float | None = None) -> dict[str, Any]:
@@ -2333,6 +2477,47 @@ def _find_market_signal(market: str, symbol: str) -> dict[str, Any] | None:
     return None
 
 
+def _build_live_fallback_signal(market: str, symbol: str, name: str = "") -> dict[str, Any] | None:
+    market_key = _normalize_market_key(market)
+    symbol = str(symbol or "").upper().strip()
+    if not symbol:
+        return None
+    if market_key == "crypto" and not symbol.endswith(("USDT", "USDC", "USD")):
+        if re.fullmatch(r"[A-Z0-9]{2,15}", symbol):
+            symbol = f"{symbol}USDT"
+
+    live_price = _lookup_live_price(_fetch_live_price_map(market_key, [symbol]), symbol)
+    if live_price is None:
+        return None
+
+    width_map = {"crypto": 0.08, "cn_equity": 0.06, "us_equity": 0.05}
+    width = width_map.get(market_key, 0.05)
+    q10 = -width / 2.0
+    q50 = 0.0
+    q90 = width / 2.0
+    row = {
+        "symbol": symbol,
+        "name": name or symbol,
+        "current_price": live_price,
+        "p_up": 0.5,
+        "p_down": 0.5,
+        "confidence_score": 50.0,
+        "policy_action": "Flat",
+        "action": "Flat",
+        "q10_change_pct": q10,
+        "q50_change_pct": q50,
+        "q90_change_pct": q90,
+        "volatility_score": abs(q90 - q10),
+        "trend_label": "neutral",
+        "risk_level": "medium",
+        "policy_position_size": 0.0,
+        "policy_reason": "live_price_fallback",
+        "forecast_generated_at_bj": _utcnow().isoformat(),
+    }
+    signal = _build_signal_payload(row, symbol_override=symbol)
+    return _apply_live_price_to_signal(signal, live_price)
+
+
 def _fallback_index_payload(market: str) -> dict[str, dict[str, Any]]:
     if market == "cn":
         return {
@@ -2653,6 +2838,200 @@ def _execution_stats(positions: list[dict[str, Any]], daily_pnl: list[dict[str, 
     }
 
 
+def _build_crypto_session_payload_from_history(
+    *,
+    symbol: str,
+    exchange: str,
+    market_type: str,
+    mode: str,
+    horizon_hours: int,
+    lookforward_days: int,
+    risk_profile: str,
+    rank_key: str,
+    cost_bps: float,
+    top_n: int,
+    symbol_options: list[str],
+    exchange_options: list[str],
+    market_type_options: list[str],
+    mode_options: list[str],
+    horizon_options: list[int],
+) -> tuple[dict[str, Any] | None, str | None]:
+    hourly_bars = _fetch_binance_history_bars(symbol=symbol, interval="hourly", limit=4000)
+    daily_bars = _fetch_binance_history_bars(symbol=symbol, interval="daily", limit=3000)
+    source_actual = "binance_klines"
+    if not hourly_bars:
+        hourly_bars = _fetch_yahoo_history_bars(symbol=symbol, market="crypto", interval="hourly", limit=4000)
+        source_actual = "yahoo_chart"
+    if not daily_bars:
+        daily_bars = _fetch_yahoo_history_bars(symbol=symbol, market="crypto", interval="daily", limit=3000)
+        if source_actual != "yahoo_chart":
+            source_actual = "mixed:binance+yahoo"
+
+    if not hourly_bars:
+        return None, "crypto_session_bundle_not_found"
+
+    profile_main, mode_actual = _hourly_stats_by_hour(
+        hourly_bars,
+        horizon_hours=horizon_hours,
+        recent_days=180,
+        mode=mode,
+    )
+    if not profile_main:
+        return None, "crypto_session_rows_not_found"
+    current_price = _safe_float((hourly_bars[-1] or {}).get("close"))
+    if current_price is None:
+        return None, "crypto_price_not_found"
+
+    hourly_main = _build_hourly_rows_from_profile(
+        profile_main,
+        current_price=current_price,
+        active_session="all",
+    )
+    blocks_main = _aggregate_blocks(hourly_main, active_session="all")
+    daily_main, daily_mode_actual = _build_daily_rows_from_bars(
+        daily_bars,
+        lookforward_days=lookforward_days,
+        mode=mode_actual,
+        current_price=current_price,
+    )
+    if mode_actual == "forecast" and daily_mode_actual != "forecast":
+        mode_actual = daily_mode_actual
+
+    compare_mode = _mode_pair(mode_actual)
+    profile_cmp, compare_mode_actual = _hourly_stats_by_hour(
+        hourly_bars,
+        horizon_hours=horizon_hours,
+        recent_days=180,
+        mode=compare_mode,
+    )
+    hourly_cmp = _build_hourly_rows_from_profile(
+        profile_cmp,
+        current_price=current_price,
+        active_session="all",
+    )
+    blocks_cmp = _aggregate_blocks(hourly_cmp, active_session="all")
+
+    generated_bj = (_utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S+0800")
+    for frame in (hourly_main, blocks_main, daily_main, hourly_cmp, blocks_cmp):
+        for row in frame:
+            row["symbol"] = symbol
+            row["exchange"] = exchange
+            row["exchange_actual"] = exchange
+            row["market_type"] = market_type
+            row["mode"] = mode_actual
+            row["mode_requested"] = mode
+            row["horizon"] = f"{horizon_hours}h" if "hour_bj" in row else "1d"
+            row["current_price"] = current_price
+            row["forecast_generated_at_bj"] = generated_bj
+            row["data_updated_at_bj"] = generated_bj
+            row["model_version"] = f"crypto_proxy_{mode_actual}_v1"
+            row["data_source_actual"] = source_actual
+
+    decision_row = _select_decision_row(hourly_main, active_session="all")
+    decision_plan = _build_trade_plan_light(
+        decision_row or {},
+        risk_profile=risk_profile,
+        p_bull=0.55,
+        p_bear=0.45,
+        conf_min=60.0,
+        cost_bps=20.0,
+    )
+    sessions = [_enrich_session_row(r, cost_bps=cost_bps) for r in blocks_main]
+    session_map = {str(r.get("session_name") or "").lower(): r for r in sessions}
+    summary = _build_summary_from_blocks(sessions)
+    top_hourly = _build_top_tables(hourly_main, top_n=top_n, rank_key=rank_key, cost_bps=cost_bps)
+    top_daily = _build_top_tables(daily_main, top_n=top_n, rank_key=rank_key, cost_bps=cost_bps)
+    sim_path = _build_sim_path(
+        daily_main,
+        current_price,
+        lookforward_days=lookforward_days,
+        anchor_q10=_safe_float(decision_plan.get("q10")),
+        anchor_q50=_safe_float(decision_plan.get("q50")),
+        anchor_q90=_safe_float(decision_plan.get("q90")),
+    )
+    consensus = _session_consensus_light(decision_row, blocks_cmp)
+    model_health_level, model_health_text = _model_health_text(hourly_main)
+    compare_rows = _build_compare_rows(sessions, blocks_cmp, main_mode=mode_actual, compare_mode=compare_mode_actual)
+
+    data_version_seed = f"{symbol}|{exchange}|{market_type}|{mode_actual}|{horizon_hours}|{generated_bj}|{source_actual}"
+    data_version = hashlib.sha1(data_version_seed.encode("utf-8")).hexdigest()[:12]
+    payload = {
+        "ok": True,
+        "market": "crypto",
+        "controls": {
+            "symbol_options": symbol_options,
+            "exchange_options": exchange_options,
+            "market_type_options": market_type_options,
+            "mode_options": mode_options,
+            "horizon_options": horizon_options,
+            "risk_profile_options": ["standard", "conservative", "aggressive"],
+            "rank_options": RANK_OPTIONS,
+            "selected": {
+                "symbol": symbol,
+                "exchange": exchange,
+                "market_type": market_type,
+                "mode": mode_actual,
+                "horizon_hours": horizon_hours,
+                "lookforward_days": lookforward_days,
+                "risk_profile": risk_profile,
+                "rank_key": rank_key,
+                "top_n": top_n,
+                "cost_bps": cost_bps,
+            },
+        },
+        "meta": {
+            "symbol": symbol,
+            "exchange": exchange,
+            "exchange_actual": exchange,
+            "market_type": market_type,
+            "mode_requested": mode,
+            "mode_actual": mode_actual,
+            "horizon_hours": horizon_hours,
+            "lookforward_days": lookforward_days,
+            "current_price": current_price,
+            "forecast_generated_at_bj": generated_bj,
+            "data_updated_at_bj": generated_bj,
+            "model_version": f"crypto_proxy_{mode_actual}_v1",
+            "data_source_actual": source_actual,
+            "data_version": data_version,
+        },
+        "sessions": sessions,
+        "hourly": hourly_main,
+        "daily": daily_main[:lookforward_days],
+        "summary": summary,
+        "decision": {
+            "plan": decision_plan,
+            "consensus": consensus,
+            "model_health": model_health_level,
+            "model_health_text": model_health_text,
+            "threshold_text": "阈值 p_bull=0.55, p_bear=0.45, conf>=60, RR(TP1)>=1.0(不含TP2), cost=20.0bps",
+        },
+        "compare": {
+            "main_mode": mode_actual,
+            "compare_mode": compare_mode_actual,
+            "rows": compare_rows,
+        },
+        "top": {
+            "rank_key": rank_key,
+            "top_n": top_n,
+            "cost_bps": cost_bps,
+            "hourly": top_hourly,
+            "daily": top_daily,
+        },
+        "sim_path": sim_path,
+        "notes": [
+            "当前标的未命中预计算 session 文件，已自动切换为历史分布实时估计。",
+            "小时级语义：从该小时开始的未来窗口回报，不代表该小时内必涨/必跌。",
+        ],
+        "blocks": blocks_main,
+        "asian": session_map.get("asia"),
+        "european": session_map.get("europe"),
+        "american": session_map.get("us"),
+        "timestamp": _utcnow().isoformat(),
+    }
+    return payload, None
+
+
 def _build_crypto_session_payload(
     *,
     symbol: str,
@@ -2674,9 +3053,11 @@ def _build_crypto_session_payload(
         return None, "crypto_session_data_not_found"
 
     preferred_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
-    symbol_options = sorted({str(r.get("symbol") or "").upper() for r in all_blocks if str(r.get("symbol") or "").strip()})
-    symbol_options = preferred_symbols + [s for s in symbol_options if s not in preferred_symbols]
-    symbol_options = [s for s in symbol_options if s]
+    data_symbols = sorted({str(r.get("symbol") or "").upper() for r in all_blocks if str(r.get("symbol") or "").strip()})
+    universe_symbols = [str(x.get("symbol") or "").upper() for x in _load_universe_symbols("crypto", limit=200, pool="top100_ex_stable")]
+    symbol_options = preferred_symbols[:]
+    symbol_options.extend([s for s in data_symbols if s and s not in symbol_options])
+    symbol_options.extend([s for s in universe_symbols if s and s not in symbol_options])
     if not symbol_options:
         symbol_options = preferred_symbols
 
@@ -2732,7 +3113,23 @@ def _build_crypto_session_payload(
         horizon=horizon_key,
     )
     if not forecast_id:
-        return None, "crypto_session_bundle_not_found"
+        return _build_crypto_session_payload_from_history(
+            symbol=symbol,
+            exchange=exchange,
+            market_type=market_type,
+            mode=mode,
+            horizon_hours=horizon_hours,
+            lookforward_days=lookforward_days,
+            risk_profile=risk_profile,
+            rank_key=rank_key,
+            cost_bps=cost_bps,
+            top_n=top_n,
+            symbol_options=symbol_options,
+            exchange_options=exchange_options,
+            market_type_options=market_type_options,
+            mode_options=mode_options,
+            horizon_options=horizon_options,
+        )
 
     blocks = _rows_for_forecast_id(all_blocks, forecast_id)
     hourly = _rows_for_forecast_id(all_hourly, forecast_id)
@@ -3788,18 +4185,25 @@ def create_app() -> Flask:
     @app.get("/api/crypto/symbols")
     def crypto_symbols() -> Any:
         """Get list of available crypto symbols."""
-        predictions = _get_market_predictions("crypto", limit=100)
-        symbols = []
-        for item in predictions:
-            sym = str(item.get("symbol") or "").upper()
-            if not sym:
-                continue
-            symbols.append({
-                "symbol": sym,
-                "name": item.get("name") or sym.replace("USDT", ""),
-                "instrument_id": sym.replace("USDT", "").lower(),
-                "current_price": _safe_float(item.get("current_price")),
-            })
+        try:
+            limit = min(max(int(request.args.get("limit", "200")), 1), 1000)
+        except ValueError:
+            limit = 200
+        pool = str(request.args.get("pool", "")).strip().lower()
+
+        symbols = _load_universe_symbols("crypto", limit=limit, pool=pool)
+        if not symbols:
+            predictions = _get_market_predictions("crypto", limit=limit)
+            for item in predictions:
+                sym = str(item.get("symbol") or "").upper()
+                if not sym:
+                    continue
+                symbols.append({
+                    "symbol": sym,
+                    "name": item.get("name") or sym.replace("USDT", ""),
+                    "instrument_id": sym.replace("USDT", "").lower(),
+                    "current_price": _safe_float(item.get("current_price")),
+                })
         if not symbols:
             symbols = [
                 {"symbol": "BTCUSDT", "name": "Bitcoin", "instrument_id": "btc"},
@@ -3840,6 +4244,8 @@ def create_app() -> Flask:
         """Alias endpoint used by web frontend."""
         symbol = symbol.upper().strip()
         signal = _find_market_signal("crypto", symbol)
+        if signal is None:
+            signal = _build_live_fallback_signal("crypto", symbol)
         if signal is None:
             return jsonify({"ok": False, "error": "signal_not_found", "symbol": symbol}), 404
         return jsonify({"ok": True, "symbol": symbol, "signal": signal, "prediction": signal, "timestamp": _utcnow().isoformat()})
@@ -3979,18 +4385,26 @@ def create_app() -> Flask:
     @app.get("/api/cn/symbols")
     def cn_symbols() -> Any:
         """Get list of available A-share symbols."""
-        predictions = _get_market_predictions("cn_equity", limit=200)
-        symbols: list[dict[str, Any]] = []
-        for item in predictions:
-            sym = str(item.get("symbol") or "").upper()
-            if not sym:
-                continue
-            symbols.append({
-                "symbol": sym,
-                "name": item.get("name") or sym,
-                "instrument_id": sym.lower().replace(".", "_"),
-                "current_price": _safe_float(item.get("current_price")),
-            })
+        try:
+            limit = min(max(int(request.args.get("limit", "1200")), 1), 5000)
+        except ValueError:
+            limit = 1200
+        pool = str(request.args.get("pool", "")).strip().lower()
+
+        symbols = _load_universe_symbols("cn_equity", limit=limit, pool=pool)
+        if not symbols:
+            predictions = _get_market_predictions("cn_equity", limit=limit)
+            symbols = []
+            for item in predictions:
+                sym = str(item.get("symbol") or "").upper()
+                if not sym:
+                    continue
+                symbols.append({
+                    "symbol": sym,
+                    "name": item.get("name") or sym,
+                    "instrument_id": sym.lower().replace(".", "_"),
+                    "current_price": _safe_float(item.get("current_price")),
+                })
         if not symbols:
             symbols = [
                 {"symbol": "600519.SH", "name": "贵州茅台", "instrument_id": "moutai"},
@@ -4011,7 +4425,9 @@ def create_app() -> Flask:
             if predictions:
                 signal = _build_signal_payload(predictions[0])
             else:
-                return jsonify({"ok": False, "error": "signal_not_found", "symbol": symbol}), 404
+                signal = _build_live_fallback_signal("cn_equity", symbol)
+        if signal is None:
+            return jsonify({"ok": False, "error": "signal_not_found", "symbol": symbol}), 404
         return jsonify({"ok": True, "symbol": symbol, "signal": signal, "prediction": signal, "timestamp": _utcnow().isoformat()})
 
 
@@ -4148,18 +4564,26 @@ def create_app() -> Flask:
     @app.get("/api/us/symbols")
     def us_symbols() -> Any:
         """Get list of available US stock symbols."""
-        predictions = _get_market_predictions("us_equity", limit=500)
-        symbols: list[dict[str, Any]] = []
-        for item in predictions:
-            sym = str(item.get("symbol") or "").upper()
-            if not sym:
-                continue
-            symbols.append({
-                "symbol": sym,
-                "name": item.get("name") or sym,
-                "instrument_id": sym.lower(),
-                "current_price": _safe_float(item.get("current_price")),
-            })
+        try:
+            limit = min(max(int(request.args.get("limit", "800")), 1), 3000)
+        except ValueError:
+            limit = 800
+        pool = str(request.args.get("pool", "")).strip().lower()
+
+        symbols = _load_universe_symbols("us_equity", limit=limit, pool=pool)
+        if not symbols:
+            predictions = _get_market_predictions("us_equity", limit=limit)
+            symbols = []
+            for item in predictions:
+                sym = str(item.get("symbol") or "").upper()
+                if not sym:
+                    continue
+                symbols.append({
+                    "symbol": sym,
+                    "name": item.get("name") or sym,
+                    "instrument_id": sym.lower(),
+                    "current_price": _safe_float(item.get("current_price")),
+                })
         if not symbols:
             symbols = [
                 {"symbol": "AAPL", "name": "Apple Inc.", "instrument_id": "aapl"},
@@ -4180,7 +4604,9 @@ def create_app() -> Flask:
             if predictions:
                 signal = _build_signal_payload(predictions[0])
             else:
-                return jsonify({"ok": False, "error": "signal_not_found", "symbol": symbol}), 404
+                signal = _build_live_fallback_signal("us_equity", symbol)
+        if signal is None:
+            return jsonify({"ok": False, "error": "signal_not_found", "symbol": symbol}), 404
         return jsonify({"ok": True, "symbol": symbol, "signal": signal, "prediction": signal, "timestamp": _utcnow().isoformat()})
 
 

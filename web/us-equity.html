@@ -4,11 +4,11 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>美股市场预测 - StockandCrypto</title>
- <link rel="stylesheet" href="css/style.css">
- <link rel="stylesheet" href="css/components.css">
+ <link rel="stylesheet" href="css/style.css?v=20260301d">
+ <link rel="stylesheet" href="css/components.css?v=20260301d">
  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
+<body class="equity-page">
  <!-- Header Navigation -->
  <header class="header">
  <div class="header-container">
@@ -178,6 +178,162 @@
  </div>
  <div class="chart-wrapper">
  <canvas id="signalChart" height="350"></canvas>
+ </div>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <!-- 8501 Deep Decision Workspace -->
+ <section class="section-padding section-dark">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">深度决策面板</h2>
+ <p class="section-desc">同步美股页面核心结构：决策卡、Trade Plan、规则清单、因子、投影、新闻与回测摘要。</p>
+ </div>
+
+ <div class="decision-card eq-decision-card">
+ <div class="decision-top">
+ <div>
+ <div class="decision-k">最终动作</div>
+ <div class="decision-action flat" id="eqDecisionAction">WAIT / 观望</div>
+ <div class="decision-note" id="eqDecisionExec">规则未通过 · 等待触发</div>
+ </div>
+ <div>
+ <div class="decision-k">信号强度 / 评分</div>
+ <div class="decision-v" id="eqDecisionStrength">弱信号 / --</div>
+ <div class="decision-note" id="eqDecisionRisk">新闻风险：--</div>
+ </div>
+ </div>
+ <div class="decision-grid">
+ <div><span>推荐入场（固定）</span><strong id="eqDecisionEntry">--</strong></div>
+ <div><span>止损 / 止盈</span><strong id="eqDecisionSLTP">-- / --</strong></div>
+ <div><span>RR / 命中率</span><strong id="eqDecisionRR">-- / --</strong></div>
+ </div>
+ <div class="decision-note" id="eqDecisionReasons">✅ -- | ✅ -- | ❌ --</div>
+ </div>
+
+ <div class="decision-metrics eq-trade-metrics" id="eqTradePlanMetrics">
+ <div class="decision-metric"><span>预期收益(q50)</span><strong id="eqTradeMetricQ50">--</strong></div>
+ <div class="decision-metric"><span>风险（到SL）</span><strong id="eqTradeMetricRisk">--</strong></div>
+ <div class="decision-metric"><span>RR</span><strong id="eqTradeMetricRR">--</strong></div>
+ <div class="decision-metric"><span>净Edge(扣成本后)</span><strong id="eqTradeMetricEdge">--</strong></div>
+ <div class="decision-metric"><span>TP1先触发概率</span><strong id="eqTradeMetricTP1">--</strong></div>
+ <div class="decision-metric"><span>TP2先触发概率</span><strong id="eqTradeMetricTP2">--</strong></div>
+ <div class="decision-metric"><span>期望值(EV)</span><strong id="eqTradeMetricEV">--</strong></div>
+ </div>
+
+ <div class="eq-rules-grid">
+ <div class="eq-rule-card">
+ <h3>Long 触发条件</h3>
+ <ul class="eq-rule-list" id="eqRuleLong"></ul>
+ </div>
+ <div class="eq-rule-card">
+ <h3>Short 触发条件</h3>
+ <ul class="eq-rule-list" id="eqRuleShort"></ul>
+ </div>
+ <div class="eq-rule-card">
+ <h3>当前建议条件</h3>
+ <ul class="eq-rule-list" id="eqRuleCurrent"></ul>
+ </div>
+ </div>
+
+ <div class="eq-snapshot-grid">
+ <div class="eq-snapshot-card">
+ <div class="eq-k">当前价格</div>
+ <div class="eq-v" id="eqSnapshotCurrent">--</div>
+ </div>
+ <div class="eq-snapshot-card">
+ <div class="eq-k">预测价格</div>
+ <div class="eq-v" id="eqSnapshotPredicted">--</div>
+ </div>
+ <div class="eq-snapshot-card">
+ <div class="eq-k">预计涨跌幅</div>
+ <div class="eq-v" id="eqSnapshotChange">--</div>
+ </div>
+ <div class="eq-snapshot-card">
+ <div class="eq-k">策略动作</div>
+ <div class="eq-v" id="eqSnapshotAction">观望</div>
+ </div>
+ <div class="eq-snapshot-card eq-meta-card">
+ <div class="eq-k">预期日期（完整）</div>
+ <div class="eq-v-sm" id="eqExpectedDate">--</div>
+ <div class="eq-note" id="eqSnapshotMeta">价格源: -- | 预测方法: --</div>
+ </div>
+ </div>
+
+ <div class="table-shell eq-signal-plan">
+ <h3 class="table-title">开单信号与风控计划</h3>
+ <div class="eq-signal-grid">
+ <div class="eq-mini-card"><span>当前信号</span><strong id="eqSignalCurrent">观望</strong></div>
+ <div class="eq-mini-card"><span>趋势判断</span><strong id="eqSignalTrend">震荡</strong></div>
+ <div class="eq-mini-card"><span>止损价</span><strong id="eqSignalSL">--</strong></div>
+ <div class="eq-mini-card"><span>止盈价</span><strong id="eqSignalTP">--</strong></div>
+ <div class="eq-mini-card"><span>盈亏比(RR)</span><strong id="eqSignalRR">--</strong></div>
+ </div>
+ <p class="eq-note" id="eqSignalReason">开单理由: --</p>
+ </div>
+
+ <div class="eq-factor-grid">
+ <div class="eq-factor-card"><span>市值因子</span><strong id="eqFactorSize">--</strong></div>
+ <div class="eq-factor-card"><span>价值因子</span><strong id="eqFactorValue">--</strong></div>
+ <div class="eq-factor-card"><span>成长因子</span><strong id="eqFactorGrowth">--</strong></div>
+ <div class="eq-factor-card"><span>动能因子</span><strong id="eqFactorMomentum">--</strong></div>
+ <div class="eq-factor-card"><span>反转因子</span><strong id="eqFactorReversal">--</strong></div>
+ <div class="eq-factor-card"><span>低波动因子</span><strong id="eqFactorLowVol">--</strong></div>
+ </div>
+
+ <div class="chart-container-enhanced">
+ <div class="chart-header">
+ <h3 class="chart-title">预测可视化图（q10 / q50 / q90）</h3>
+ </div>
+ <div class="chart-wrapper" style="height: 320px;">
+ <canvas id="eqProjectionChart"></canvas>
+ </div>
+ </div>
+
+ <div class="eq-info-grid">
+ <div class="table-shell">
+ <h3 class="table-title">最新新闻与财报解读</h3>
+ <ul class="eq-news-list" id="eqNewsList"></ul>
+ </div>
+ <div class="table-shell">
+ <h3 class="table-title">回测结果（该标的）</h3>
+ <div class="eq-backtest-metrics">
+ <div><span>策略总收益</span><strong id="eqBacktestReturn">--</strong></div>
+ <div><span>策略夏普</span><strong id="eqBacktestSharpe">--</strong></div>
+ <div><span>最大回撤</span><strong id="eqBacktestMdd">--</strong></div>
+ <div><span>胜率</span><strong id="eqBacktestWinRate">--</strong></div>
+ </div>
+ <div class="table-scroll">
+ <table class="stock-table compact-table">
+ <thead>
+ <tr>
+ <th>策略</th>
+ <th>总收益</th>
+ <th>夏普</th>
+ <th>最大回撤</th>
+ <th>胜率</th>
+ </tr>
+ </thead>
+ <tbody id="eqBacktestBody"></tbody>
+ </table>
+ </div>
+ <div class="table-scroll" style="margin-top: 0.8rem;">
+ <table class="stock-table compact-table">
+ <thead>
+ <tr>
+ <th>时间</th>
+ <th>方向</th>
+ <th>信号</th>
+ <th>进场价</th>
+ <th>止损</th>
+ <th>止盈</th>
+ <th>净收益</th>
+ </tr>
+ </thead>
+ <tbody id="eqRecentTradesBody"></tbody>
+ </table>
  </div>
  </div>
  </div>
@@ -490,8 +646,11 @@
  </div>
  </footer>
 
- <script src="js/api.js"></script>
- <script src="js/main.js"></script>
- <script src="js/us-equity.js"></script>
+ <div id="toast" class="toast"></div>
+
+ <script src="js/api.js?v=20260301e"></script>
+ <script src="js/main.js?v=20260301e"></script>
+ <script src="js/equity-deep.js?v=20260301e"></script>
+ <script src="js/us-equity.js?v=20260301e"></script>
 </body>
 </html>

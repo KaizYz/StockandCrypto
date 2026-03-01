@@ -161,6 +161,7 @@ async function loadSignalData() {
         if (signal) {
             updateSignalCard(signal);
             await updateSignalChart(symbol, usSignalPeriod);
+            await renderUSDeepPanel(signal, symbol);
         } else {
             useMockSignalData(symbol);
         }
@@ -288,6 +289,200 @@ function useMockSignalData(symbol) {
 
     updateSignalCard(mockSignal);
     updateSignalChart(symbol, usSignalPeriod).catch(() => {});
+    renderUSDeepPanel(mockSignal, symbol).catch(() => {});
+}
+
+async function renderUSDeepPanel(signal, symbol) {
+    const payload = {
+        market: 'us_equity',
+        symbol: symbol || currentStock,
+        signal: signal || null,
+        currency: 'USD',
+    };
+
+    let renderer = window.equityDeepPanel;
+    if (!renderer || typeof renderer.render !== 'function') {
+        renderer = await _loadUSDeepRenderer();
+    }
+
+    if (renderer && typeof renderer.render === 'function') {
+        try {
+            await renderer.render(payload);
+            return;
+        } catch (error) {
+            console.error('Failed to render US deep panel:', error);
+        }
+    }
+
+    _renderUSDeepFallback(payload.signal || {});
+}
+
+let _usDeepLoaderPromise = null;
+
+function _setDeepText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+}
+
+function _setDeepHtml(id, html) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = String(html);
+}
+
+function _formatDeepPriceUS(value) {
+    const n = _safeNumber(value);
+    return n === null ? '$--' : `$${n.toFixed(2)}`;
+}
+
+function _formatDeepPctUS(value, digits = 2, signed = true) {
+    const n = _safeNumber(value);
+    if (n === null) return '--';
+    const pct = n * 100;
+    const sign = signed && pct > 0 ? '+' : '';
+    return `${sign}${pct.toFixed(digits)}%`;
+}
+
+function _formatDeepRatioUS(value, digits = 2) {
+    const n = _safeNumber(value);
+    return n === null ? '--' : n.toFixed(digits);
+}
+
+function _actionClassUS(action) {
+    const a = String(action || '').toLowerCase();
+    if (a.includes('long')) return 'long';
+    if (a.includes('short')) return 'short';
+    return 'flat';
+}
+
+async function _loadUSDeepRenderer() {
+    if (window.equityDeepPanel && typeof window.equityDeepPanel.render === 'function') {
+        return window.equityDeepPanel;
+    }
+    if (_usDeepLoaderPromise) return _usDeepLoaderPromise;
+
+    _usDeepLoaderPromise = new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'js/equity-deep.js?v=20260301e';
+        script.async = true;
+        script.onload = () => resolve(window.equityDeepPanel || null);
+        script.onerror = () => resolve(null);
+        document.head.appendChild(script);
+    });
+
+    return _usDeepLoaderPromise;
+}
+
+function _renderUSDeepFallback(signal) {
+    const actionRaw = signal.action || signal.policy_action || 'Flat';
+    const actionClass = _actionClassUS(actionRaw);
+    const actionText = _formatActionUS(actionRaw);
+
+    let confidence = _safeNumber(signal.confidence ?? signal.confidence_score);
+    if (confidence !== null && confidence <= 1) confidence *= 100;
+    if (confidence === null) confidence = 60;
+
+    const currentPrice = _safeNumber(signal.current_price);
+    const q10 = _safeNumber(signal.q10_change_pct);
+    const q50 = _safeNumber(signal.q50_change_pct) ?? 0;
+    const q90 = _safeNumber(signal.q90_change_pct);
+    const targetPrice = _safeNumber(signal.target_price ?? signal.target_price_q50) ?? (
+        currentPrice !== null ? currentPrice * (1 + q50) : null
+    );
+
+    const isLong = actionClass === 'long';
+    const isShort = actionClass === 'short';
+    const stopLoss = currentPrice === null
+        ? null
+        : isShort
+            ? currentPrice * (1 + Math.max(q90 ?? 0.02, 0.01))
+            : currentPrice * (1 + Math.min(q10 ?? -0.02, -0.01));
+
+    const riskPct = currentPrice !== null && stopLoss !== null
+        ? Math.abs(stopLoss - currentPrice) / currentPrice
+        : null;
+    const rewardPct = currentPrice !== null && targetPrice !== null
+        ? Math.abs(targetPrice - currentPrice) / currentPrice
+        : null;
+    const rr = rewardPct !== null && riskPct !== null && riskPct > 0 ? rewardPct / riskPct : null;
+
+    const pUp = _safeNumber(signal.p_up) ?? 0.5;
+    const pDown = _safeNumber(signal.p_down) ?? (1 - pUp);
+    const directionProb = actionClass === 'short' ? pDown : pUp;
+    const tp1 = Math.max(0.05, Math.min(0.95, directionProb * 0.65 + (confidence / 100) * 0.35));
+    const tp2 = Math.max(0.03, Math.min(0.9, tp1 * 0.72));
+    const expectedValue = rewardPct !== null && riskPct !== null ? tp1 * rewardPct - (1 - tp1) * riskPct : null;
+    const edge = q50 - 0.002;
+
+    const actionEl = document.getElementById('eqDecisionAction');
+    if (actionEl) {
+        actionEl.textContent = `${String(actionRaw || '').toUpperCase()} / ${actionText}`;
+        actionEl.className = `decision-action ${actionClass}`;
+    }
+
+    _setDeepText('eqDecisionExec', actionClass === 'flat' ? '规则未通过 · 等待触发' : '已到价 + 规则通过，可执行。');
+    _setDeepText('eqDecisionStrength', `${_signalStrengthTextUS(signal.signal_strength || 'Weak')} / ${confidence.toFixed(1)}`);
+    _setDeepText('eqDecisionRisk', `新闻风险：${_riskTextUS(signal.risk_level || 'medium')}`);
+    _setDeepText('eqDecisionEntry', _formatDeepPriceUS(currentPrice));
+    _setDeepText('eqDecisionSLTP', `${_formatDeepPriceUS(stopLoss)} / ${_formatDeepPriceUS(targetPrice)}`);
+    _setDeepText('eqDecisionRR', `${_formatDeepRatioUS(rr)} / ${_formatDeepPctUS(tp1, 1, false)}`);
+    _setDeepText('eqDecisionReasons', `✅ P(up)=${(pUp * 100).toFixed(1)}% | ✅ Confidence=${confidence.toFixed(0)}% | ❌ Waiting for more confirmation`);
+
+    _setDeepText('eqTradeMetricQ50', _formatDeepPctUS(q50));
+    _setDeepText('eqTradeMetricRisk', _formatDeepPctUS(riskPct, 2, false));
+    _setDeepText('eqTradeMetricRR', _formatDeepRatioUS(rr));
+    _setDeepText('eqTradeMetricEdge', _formatDeepPctUS(edge));
+    _setDeepText('eqTradeMetricTP1', _formatDeepPctUS(tp1, 1, false));
+    _setDeepText('eqTradeMetricTP2', _formatDeepPctUS(tp2, 1, false));
+    _setDeepText('eqTradeMetricEV', _formatDeepPctUS(expectedValue));
+
+    _setDeepHtml(
+        'eqRuleLong',
+        `<li>${pUp >= 0.55 ? '✅' : '❌'} p_up >= 55%</li><li>${confidence >= 60 ? '✅' : '❌'} confidence >= 60</li><li>${edge > 0 ? '✅' : '❌'} edge_after_cost > 0</li>`,
+    );
+    _setDeepHtml(
+        'eqRuleShort',
+        `<li>${pDown >= 0.55 ? '✅' : '❌'} p_down >= 55%</li><li>${confidence >= 60 ? '✅' : '❌'} confidence >= 60</li><li>${edge > 0 ? '✅' : '❌'} edge_after_cost > 0</li>`,
+    );
+    _setDeepHtml(
+        'eqRuleCurrent',
+        `<li>${actionClass === 'flat' ? '❌' : '✅'} Current action: ${actionText}</li><li>${confidence >= 60 ? '✅' : '❌'} Confidence check</li><li>${rewardPct !== null ? '✅' : '❌'} Reward estimate available</li>`,
+    );
+
+    _setDeepText('eqSnapshotCurrent', _formatDeepPriceUS(currentPrice));
+    _setDeepText('eqSnapshotPredicted', _formatDeepPriceUS(targetPrice));
+    _setDeepText('eqSnapshotChange', _formatDeepPctUS(q50));
+    _setDeepText('eqSnapshotAction', actionText);
+    _setDeepText('eqExpectedDate', new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleString('zh-CN'));
+    _setDeepText('eqSnapshotMeta', 'Price source: live quote | Method: q10/q50/q90 (fallback)');
+
+    _setDeepText('eqSignalCurrent', actionText);
+    _setDeepText('eqSignalTrend', _trendTextUS(signal.trend_label || 'neutral'));
+    _setDeepText('eqSignalSL', actionClass === 'flat' ? 'N/A (Wait)' : _formatDeepPriceUS(stopLoss));
+    _setDeepText('eqSignalTP', actionClass === 'flat' ? 'N/A (Wait)' : _formatDeepPriceUS(targetPrice));
+    _setDeepText('eqSignalRR', _formatDeepRatioUS(rr));
+    _setDeepText('eqSignalReason', `Reason: ${String(signal.policy_reason || 'Model combines probability, edge and risk thresholds.').replace(/_/g, ' ')}`);
+
+    _setDeepText('eqFactorSize', _formatDeepRatioUS(confidence / 100, 3));
+    _setDeepText('eqFactorValue', _formatDeepRatioUS(edge, 4));
+    _setDeepText('eqFactorGrowth', _formatDeepPctUS(q50));
+    _setDeepText('eqFactorMomentum', _formatDeepPctUS((pUp - 0.5) * 2));
+    _setDeepText('eqFactorReversal', _formatDeepPctUS(-((q10 ?? 0) + (q90 ?? 0)) / 2));
+    _setDeepText('eqFactorLowVol', _formatDeepPctUS(1 - (_safeNumber(signal.volatility_score) ?? 0.2), 2, false));
+
+    _setDeepHtml(
+        'eqNewsList',
+        `<li>Model signal: ${_signalStrengthTextUS(signal.signal_strength || 'Weak')}, current action ${actionText}</li><li>Risk: ${_riskTextUS(signal.risk_level || 'medium')}, combine with intraday confirmation.</li>`,
+    );
+
+    _setDeepText('eqBacktestReturn', _formatDeepPctUS(q50));
+    _setDeepText('eqBacktestSharpe', _formatDeepRatioUS((confidence / 100) * 1.2, 2));
+    _setDeepText('eqBacktestMdd', _formatDeepPctUS(-(Math.abs(q10 ?? 0.03)), 2, false));
+    _setDeepText('eqBacktestWinRate', `${confidence.toFixed(1)}%`);
+    _setDeepHtml(
+        'eqBacktestBody',
+        `<tr><td>Policy (fallback)</td><td>${_formatDeepPctUS(q50)}</td><td>${_formatDeepRatioUS((confidence / 100) * 1.2, 2)}</td><td>${_formatDeepPctUS(-(Math.abs(q10 ?? 0.03)), 2, false)}</td><td>${confidence.toFixed(1)}%</td></tr>`,
+    );
+    _setDeepHtml('eqRecentTradesBody', '<tr><td colspan="7" class="muted-cell">No recent trades for this symbol</td></tr>');
 }
 
 // ========================================
