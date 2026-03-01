@@ -9,8 +9,12 @@ document.addEventListener('DOMContentLoaded', function() {
     initCountUp();
     initScrollReveal();
     // initCharts(); // Disabled
-    initPriceAnimation();
+    initHomeLiveMarketCards();
 });
+
+const HOME_MARKET_REFRESH_MS = 30000;
+const homeSparklineCharts = {};
+let homeMarketRefreshTimer = null;
 
 // ========================================
 // Navigation
@@ -32,6 +36,12 @@ function initNavigation() {
                 navToggle.classList.remove('active');
             });
         });
+
+        // Keep core navigation consistent across all html pages.
+        ensureExtendedNav(navMenu);
+
+        // Keep active navigation item in sync with current html page.
+        setActiveNavLink(navMenu);
     }
     
     // Header scroll effect
@@ -48,6 +58,54 @@ function initNavigation() {
         
         lastScroll = currentScroll;
     });
+}
+
+function ensureExtendedNav(navMenu) {
+    const requiredLinks = [
+        { href: "session-crypto.html", label: "Crypto时段" },
+        { href: "session-index.html", label: "指数时段" },
+        { href: "notes.html", label: "Notes" },
+        { href: "tracking.html", label: "Selection/Tracking" },
+        { href: "execution.html", label: "Paper Trading" },
+    ];
+    const existing = new Set(
+        Array.from(navMenu.querySelectorAll("a.nav-link"))
+            .map((a) => String(a.getAttribute("href") || "").toLowerCase())
+            .filter(Boolean)
+    );
+    requiredLinks.forEach((item) => {
+        if (existing.has(item.href.toLowerCase())) return;
+        const li = document.createElement("li");
+        const a = document.createElement("a");
+        a.href = item.href;
+        a.className = "nav-link";
+        a.textContent = item.label;
+        li.appendChild(a);
+        navMenu.appendChild(li);
+    });
+}
+
+function setActiveNavLink(navMenu) {
+    if (!navMenu) return;
+    const links = navMenu.querySelectorAll(".nav-link");
+    if (!links.length) return;
+
+    const current = (window.location.pathname.split("/").pop() || "index.html").toLowerCase();
+    links.forEach((link) => link.classList.remove("active"));
+
+    let matched = null;
+    links.forEach((link) => {
+        const href = String(link.getAttribute("href") || "").toLowerCase();
+        if (href && href === current) {
+            matched = link;
+        }
+    });
+    if (!matched && current === "") {
+        matched = [...links].find((link) => String(link.getAttribute("href") || "").toLowerCase() === "index.html") || null;
+    }
+    if (matched) {
+        matched.classList.add("active");
+    }
 }
 
 // ========================================
@@ -335,42 +393,174 @@ function generateData(min, max, points) {
 }
 
 // ========================================
-// Price Animation
+// Home Live Market Cards
 // ========================================
-function initPriceAnimation() {
-    // Simulate live price updates
-    setInterval(() => {
-        updatePrice('btcPrice', 67000, 68000, 2);
-        updatePrice('ethPrice', 3400, 3500, 2);
-        updatePrice('solPrice', 140, 145, 2);
-    }, 3000);
+function initHomeLiveMarketCards() {
+    const hasHomeCards = document.getElementById('btcCard') && document.getElementById('ethCard') && document.getElementById('solCard');
+    if (!hasHomeCards) return;
+    if (!window.api || !api.market || typeof api.market.getOverview !== 'function') return;
+
+    refreshHomeLiveMarketCards({ refreshHistory: true }).catch((error) => {
+        console.error('Failed to initialize home live market cards:', error);
+    });
+
+    if (homeMarketRefreshTimer) {
+        clearInterval(homeMarketRefreshTimer);
+    }
+    homeMarketRefreshTimer = setInterval(() => {
+        refreshHomeLiveMarketCards({ refreshHistory: true }).catch((error) => {
+            console.error('Failed to refresh home live market cards:', error);
+        });
+    }, HOME_MARKET_REFRESH_MS);
 }
 
-function updatePrice(elementId, min, max, decimals) {
-    const el = document.getElementById(elementId);
-    if (!el) return;
-    
-    const currentPrice = parseFloat(el.textContent.replace(/,/g, ''));
-    const change = (Math.random() - 0.5) * (max - min) * 0.01;
-    const newPrice = Math.max(min, Math.min(max, currentPrice + change));
-    
-    // Animate the change
-    el.style.transition = 'color 0.3s ease';
-    
-    if (newPrice > currentPrice) {
-        el.style.color = '#00d4aa';
-    } else {
-        el.style.color = '#ff6b6b';
+async function refreshHomeLiveMarketCards({ refreshHistory = true } = {}) {
+    const overview = await api.market.getOverview();
+    if (!overview || overview.ok === false) return;
+
+    updateSingleHomeCard('btc', overview.btc, '#00d4aa');
+    updateSingleHomeCard('eth', overview.eth, '#d4af37');
+    updateSingleHomeCard('sol', overview.sol, '#ff6b6b');
+
+    if (!refreshHistory) return;
+
+    await Promise.all([
+        updateHomeSparkline('BTCUSDT', 'btcChart', '#00d4aa'),
+        updateHomeSparkline('ETHUSDT', 'ethChart', '#d4af37'),
+        updateHomeSparkline('SOLUSDT', 'solChart', '#ff6b6b'),
+    ]);
+}
+
+function updateSingleHomeCard(key, payload, color) {
+    const cardId = `${key}Card`;
+    const priceId = `${key}Price`;
+    const card = document.getElementById(cardId);
+    const priceEl = document.getElementById(priceId);
+    if (!card || !priceEl || !payload || typeof payload !== 'object') return;
+
+    const price = toFiniteNumber(payload.price);
+    if (price !== null) {
+        const prev = toFiniteNumber(priceEl.textContent.replace(/[^0-9.-]/g, ''));
+        priceEl.textContent = price.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        if (prev !== null) {
+            priceEl.style.color = price >= prev ? '#00d4aa' : '#ff6b6b';
+            setTimeout(() => {
+                priceEl.style.color = '#ffffff';
+            }, 450);
+        }
     }
-    
-    el.textContent = newPrice.toLocaleString('en-US', {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals
+
+    const changeEl = card.querySelector('.price-change');
+    const change = toFiniteNumber(payload.change);
+    if (changeEl && change !== null) {
+        const sign = change > 0 ? '+' : '';
+        changeEl.textContent = `${sign}${change.toFixed(2)}%`;
+        changeEl.classList.remove('positive', 'negative');
+        changeEl.classList.add(change >= 0 ? 'positive' : 'negative');
+    }
+
+    const stats = card.querySelectorAll('.price-stats .stat-val');
+    if (stats.length >= 3) {
+        const high = toFiniteNumber(payload.high);
+        const low = toFiniteNumber(payload.low);
+        if (high !== null) stats[0].textContent = `$${formatPriceCompact(high)}`;
+        if (low !== null) stats[1].textContent = `$${formatPriceCompact(low)}`;
+        stats[2].textContent = formatVolume(payload.volume);
+    }
+
+    const fallbackSeries = [price, price, price].filter((x) => toFiniteNumber(x) !== null);
+    if (!homeSparklineCharts[`${key}Chart`] && fallbackSeries.length >= 2) {
+        upsertHomeSparkline(`${key}Chart`, fallbackSeries, color);
+    }
+}
+
+async function updateHomeSparkline(symbol, canvasId, color) {
+    if (!window.api || !api.market || typeof api.market.getHistory !== 'function') return;
+    try {
+        const history = await api.market.getHistory(symbol, { period: '1D', interval: 'hourly', limit: 24 });
+        const bars = Array.isArray(history?.bars) ? history.bars : [];
+        const series = bars
+            .map((bar) => toFiniteNumber(bar?.close))
+            .filter((v) => v !== null);
+        if (series.length >= 2) {
+            upsertHomeSparkline(canvasId, series, color);
+        }
+    } catch (error) {
+        console.error(`Failed to update sparkline for ${symbol}:`, error);
+    }
+}
+
+function upsertHomeSparkline(canvasId, data, color) {
+    if (typeof Chart === 'undefined') return;
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const labels = data.map((_, i) => String(i));
+    const gradient = ctx.createLinearGradient(0, 0, 0, 80);
+    gradient.addColorStop(0, `${color}40`);
+    gradient.addColorStop(1, `${color}00`);
+
+    const existing = homeSparklineCharts[canvasId];
+    if (existing) {
+        existing.data.labels = labels;
+        existing.data.datasets[0].data = data;
+        existing.data.datasets[0].borderColor = color;
+        existing.data.datasets[0].backgroundColor = gradient;
+        existing.update('none');
+        return;
+    }
+
+    homeSparklineCharts[canvasId] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                data,
+                borderColor: color,
+                backgroundColor: gradient,
+                fill: true,
+                tension: 0.4,
+                borderWidth: 2,
+                pointRadius: 0,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+                x: { display: false },
+                y: { display: false },
+            },
+        },
     });
-    
-    setTimeout(() => {
-        el.style.color = '#ffffff';
-    }, 500);
+}
+
+function toFiniteNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+function formatPriceCompact(value) {
+    const n = toFiniteNumber(value);
+    if (n === null) return '--';
+    if (Math.abs(n) >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatVolume(volume) {
+    if (volume === null || volume === undefined || volume === '') return '--';
+    const text = String(volume).trim();
+    const n = toFiniteNumber(text.replace(/,/g, ''));
+    if (n === null) return text;
+    if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+    return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 // ========================================

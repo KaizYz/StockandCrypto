@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>笔记 / Notes - StockandCrypto</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-container">
+            <div class="logo">
+                <a href="index.html" style="display:flex;align-items:center;gap:.5rem;">
+                    <span class="logo-icon">◈</span>
+                    <span class="logo-text">StockandCrypto</span>
+                </a>
+            </div>
+            <nav class="nav">
+                <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="index.html" class="nav-link">首页</a></li>
+                    <li><a href="crypto.html" class="nav-link">Crypto</a></li>
+                    <li><a href="cn-equity.html" class="nav-link">A股</a></li>
+                    <li><a href="us-equity.html" class="nav-link">美股</a></li>
+                    <li><a href="session-crypto.html" class="nav-link">Crypto时段</a></li>
+                    <li><a href="session-index.html" class="nav-link">指数时段</a></li>
+                    <li><a href="notes.html" class="nav-link">Notes</a></li>
+                    <li><a href="tracking.html" class="nav-link">Selection/Tracking</a></li>
+                    <li><a href="execution.html" class="nav-link">Paper Trading</a></li>
+                </ul>
+            </nav>
+            <div class="nav-actions">
+                <button id="logoutBtn" class="btn btn-secondary btn-sm" style="display:none;">退出</button>
+                <a id="loginBtn" href="login.html" class="btn btn-secondary btn-sm">登录</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <section class="page-header">
+            <div class="container">
+                <div class="page-header-content">
+                    <span class="page-tag">Notes</span>
+                    <h1 class="page-title">交易笔记与复盘</h1>
+                    <p class="page-desc">支持日常记录、交易计划、公开分享，和 Streamlit Notes 页面功能对齐。</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-padding">
+            <div class="container">
+                <div id="notesAuthPanel" class="notes-grid">
+                    <div class="notes-card">
+                        <h3>登录</h3>
+                        <form id="notesLoginForm" class="auth-inline-form">
+                            <div class="form-group">
+                                <label for="loginUsername">用户名（或留空用邮箱）</label>
+                                <input id="loginUsername" class="form-input" type="text" autocomplete="username">
+                            </div>
+                            <div class="form-group">
+                                <label for="loginEmail">邮箱（可选）</label>
+                                <input id="loginEmail" class="form-input" type="email" autocomplete="email">
+                            </div>
+                            <div class="form-group">
+                                <label for="loginPassword">密码</label>
+                                <input id="loginPassword" class="form-input" type="password" autocomplete="current-password" required>
+                            </div>
+                            <button class="btn btn-primary" type="submit">登录</button>
+                        </form>
+                    </div>
+                    <div class="notes-card">
+                        <h3>注册</h3>
+                        <form id="notesRegisterForm" class="auth-inline-form">
+                            <div class="form-group">
+                                <label for="regUsername">用户名</label>
+                                <input id="regUsername" class="form-input" type="text" autocomplete="username" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="regEmail">邮箱</label>
+                                <input id="regEmail" class="form-input" type="email" autocomplete="email" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="regPassword">密码（至少8位）</label>
+                                <input id="regPassword" class="form-input" type="password" autocomplete="new-password" required>
+                            </div>
+                            <button class="btn btn-primary" type="submit">注册</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="notesWorkspace" style="display:none;">
+                    <div class="notes-header-row">
+                        <h3 id="notesUserLabel">已登录</h3>
+                        <button id="notesRefreshBtn" class="btn btn-secondary">刷新</button>
+                    </div>
+
+                    <div class="notes-grid">
+                        <div class="notes-card">
+                            <h3>创建笔记</h3>
+                            <form id="createNoteForm" class="auth-inline-form">
+                                <div class="form-group">
+                                    <label for="noteTitle">标题</label>
+                                    <input id="noteTitle" class="form-input" type="text" maxlength="200">
+                                </div>
+                                <div class="form-group">
+                                    <label for="noteContent">内容</label>
+                                    <textarea id="noteContent" class="form-input" rows="8"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="noteTags">标签（逗号分隔）</label>
+                                    <input id="noteTags" class="form-input" type="text" placeholder="BTC, Breakout, PlanA">
+                                </div>
+                                <div class="form-group">
+                                    <label for="noteType">类型</label>
+                                    <select id="noteType" class="form-input">
+                                        <option value="NOTE">NOTE</option>
+                                        <option value="JOURNAL">JOURNAL</option>
+                                        <option value="PLAN">PLAN</option>
+                                    </select>
+                                </div>
+                                <label class="checkbox-row">
+                                    <input id="notePublic" type="checkbox">
+                                    <span>公开</span>
+                                </label>
+                                <button class="btn btn-primary" type="submit">保存</button>
+                            </form>
+                        </div>
+
+                        <div class="notes-card">
+                            <h3>我的笔记</h3>
+                            <div class="search-row">
+                                <input id="mineQuery" class="form-input" type="text" placeholder="搜索标题/内容/标签">
+                                <button id="mineSearchBtn" class="btn btn-secondary">搜索</button>
+                            </div>
+                            <div id="myNotesList" class="note-list"></div>
+                        </div>
+                    </div>
+
+                    <div class="notes-card" style="margin-top:24px;">
+                        <h3>公开笔记</h3>
+                        <div id="publicNotesList" class="note-list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="js/api.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/notes.js"></script>
+</body>
+</html>

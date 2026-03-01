@@ -1,0 +1,2596 @@
+===== INDEX_SESSION_UNIVERSE (567-596) =====
+INDEX_SESSION_UNIVERSE: Dict[str, Dict[str, str]] = {
+    "sse": {
+        "name_zh": "上证指数",
+        "name_en": "SSE Composite",
+        "symbol": "000001.SS",
+        "market": "cn_equity",
+        "timezone": "Asia/Shanghai",
+    },
+    "djia": {
+        "name_zh": "道琼斯指数",
+        "name_en": "Dow Jones Industrial Average",
+        "symbol": "^DJI",
+        "market": "us_equity",
+        "timezone": "America/New_York",
+    },
+    "nasdaq": {
+        "name_zh": "纳斯达克指数",
+        "name_en": "NASDAQ Composite",
+        "symbol": "^IXIC",
+        "market": "us_equity",
+        "timezone": "America/New_York",
+    },
+    "sp500": {
+        "name_zh": "标普500指数",
+        "name_en": "S&P 500",
+        "symbol": "^GSPC",
+        "market": "us_equity",
+        "timezone": "America/New_York",
+    },
+}
+
+===== _index_active_session (826-828) =====
+def _index_active_session(index_key: str) -> str:
+    key = str(index_key).strip().lower()
+    return INDEX_ACTIVE_SESSION.get(key, "us")
+
+===== _build_index_session_blocks (1683-1711) =====
+def _build_index_session_blocks(hourly_df: pd.DataFrame) -> pd.DataFrame:
+    if hourly_df.empty:
+        return pd.DataFrame()
+    work = hourly_df.copy()
+    work["session_name"] = work["hour_bj"].map(_session_from_hour_bj)
+    grouped = (
+        work.groupby("session_name", as_index=False)
+        .apply(
+            lambda g: pd.Series(
+                {
+                    "p_up": _weighted_average(g["p_up"], g["sample_size"]),
+                    "q10_change_pct": _weighted_average(g["q10_change_pct"], g["sample_size"]),
+                    "q50_change_pct": _weighted_average(g["q50_change_pct"], g["sample_size"]),
+                    "q90_change_pct": _weighted_average(g["q90_change_pct"], g["sample_size"]),
+                    "volatility_score": _weighted_average(g["volatility_score"], g["sample_size"]),
+                    "confidence_score": _weighted_average(g["confidence_score"], g["sample_size"]),
+                    "sample_size": int(pd.to_numeric(g["sample_size"], errors="coerce").fillna(0).sum()),
+                }
+            )
+        )
+        .reset_index(drop=True)
+    )
+    grouped["p_down"] = 1.0 - grouped["p_up"]
+    # Use language-aware display name for sessions.
+    grouped["session_name_cn"] = grouped["session_name"].map(_session_display_name)
+    grouped["session_hours"] = grouped["session_name"].map(
+        {"asia": "08:00-15:59", "europe": "16:00-23:59", "us": "00:00-07:59"}
+    )
+    return grouped
+
+===== _build_index_session_bundle_cached (1715-1920) =====
+def _build_index_session_bundle_cached(
+    index_key: str,
+    mode: str,
+    horizon_hours: int,
+    lookforward_days: int,
+    refresh_token: int = 0,
+    config_path: str = "configs/config.yaml",
+    schema_version: str = "index_session_page_v1",
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, object]]:
+    _ = refresh_token
+    _ = schema_version
+    cfg = _load_main_config_cached(config_path)
+    if index_key not in INDEX_SESSION_UNIVERSE:
+        raise ValueError(f"Unsupported index key: {index_key}")
+    inst = INDEX_SESSION_UNIVERSE[index_key]
+    symbol = str(inst["symbol"])
+    market = str(inst["market"])
+    timezone = str(inst["timezone"])
+    now_bj = pd.Timestamp.now(tz="Asia/Shanghai")
+    mode_requested = str(mode).strip().lower()
+    if mode_requested not in {"forecast", "seasonality"}:
+        mode_requested = "forecast"
+    active_session = _index_active_session(index_key)
+
+    hourly_hist, hourly_source = _yahoo_fetch_chart_bars(symbol, interval="60m", range_text="730d")
+    daily_hist, daily_source = _yahoo_fetch_chart_bars(symbol, interval="1d", range_text="10y")
+    try:
+        current_price, ticker_source = _yahoo_fetch_live_price(symbol)
+    except Exception:
+        current_price = float(pd.to_numeric(hourly_hist["close"], errors="coerce").dropna().iloc[-1])
+        ticker_source = "yahoo_chart_latest"
+
+    hourly_profile = _build_hourly_profile_from_index_hist(
+        hourly_hist=hourly_hist,
+        horizon_hours=int(horizon_hours),
+        mode=mode_requested,
+    )
+    if hourly_profile.empty:
+        raise RuntimeError(f"Hourly profile is empty for {symbol}")
+    hourly = _apply_index_labels_and_prices(hourly_profile.rename(columns={"q10": "q10", "q50": "q50", "q90": "q90"}), current_price)
+    hourly["hour_label"] = hourly["hour_bj"].map(lambda x: f"{int(x):02d}:00")
+    hourly["session_name"] = hourly["hour_bj"].map(_session_from_hour_bj)
+    # Use language-aware display name for sessions.
+    hourly["session_name_cn"] = hourly["session_name"].map(_session_display_name)
+    hourly["market"] = market
+    hourly["market_type"] = "index"
+    hourly["symbol"] = symbol
+    hourly["exchange"] = "yahoo"
+    hourly["exchange_actual"] = "yahoo"
+    hourly["mode_requested"] = mode_requested
+    hourly["mode"] = mode_requested
+    hourly["horizon"] = f"{int(horizon_hours)}h"
+    hourly["is_trading_hour"] = (hourly["session_name"] == active_session).astype(int)
+
+    hourly_active = hourly[hourly["is_trading_hour"] == 1].copy()
+
+    blocks = _build_index_session_blocks(hourly_active)
+    blocks = _apply_index_labels_and_prices(
+        blocks.rename(
+            columns={
+                "q10_change_pct": "q10",
+                "q50_change_pct": "q50",
+                "q90_change_pct": "q90",
+            }
+        ),
+        current_price,
+    )
+    blocks["market"] = market
+    blocks["market_type"] = "index"
+    blocks["symbol"] = symbol
+    blocks["exchange"] = "yahoo"
+    blocks["exchange_actual"] = "yahoo"
+    blocks["mode_requested"] = mode_requested
+    blocks["mode"] = mode_requested
+    blocks["horizon"] = f"{int(horizon_hours)}h"
+
+    daily_rows = _build_daily_rows_from_index_hist(
+        daily_hist=daily_hist,
+        lookforward_days=int(lookforward_days),
+        now_bj=now_bj,
+        mode=mode_requested,
+        index_key=str(index_key),
+    )
+    future_trading_days = (
+        pd.to_datetime(daily_rows.get("date_bj"), errors="coerce").dropna().tolist()
+        if not daily_rows.empty
+        else []
+    )
+    skipped_non_trading_df = _build_index_skipped_non_trading_days(
+        index_key=str(index_key),
+        now_bj=now_bj,
+        future_trading_days=future_trading_days,
+    )
+    daily = _apply_index_labels_and_prices(daily_rows, current_price)
+    daily["date_bj"] = pd.to_datetime(daily["date_bj"], errors="coerce").dt.strftime("%Y-%m-%d")
+    daily["market"] = market
+    daily["market_type"] = "index"
+    daily["symbol"] = symbol
+    daily["exchange"] = "yahoo"
+    daily["exchange_actual"] = "yahoo"
+    daily["mode_requested"] = mode_requested
+    daily["mode"] = mode_requested
+    daily["horizon"] = "1d"
+
+    # Add policy layer so index page keeps the same decision language.
+    for frame in [hourly, blocks, daily]:
+        frame["news_score_30m"] = 0.0
+        frame["news_score_120m"] = 0.0
+        frame["news_score_2h"] = 0.0
+        frame["news_score_24h"] = 0.0
+        frame["news_count_30m"] = 0.0
+        frame["news_burst_zscore"] = 0.0
+        frame["news_event_risk"] = 0.0
+        frame["news_gate_pass"] = 1.0
+        frame["news_risk_level"] = "low"
+        frame["news_reason_codes"] = ""
+    hourly = apply_policy_frame(
+        hourly,
+        cfg,
+        market_col="market",
+        market_type_col="market_type",
+        p_up_col="p_up",
+        q10_col="q10_change_pct",
+        q50_col="q50_change_pct",
+        q90_col="q90_change_pct",
+        volatility_col="volatility_score",
+        confidence_col="confidence_score",
+        current_price_col="current_price",
+        risk_level_col="risk_level",
+    )
+    blocks = apply_policy_frame(
+        blocks,
+        cfg,
+        market_col="market",
+        market_type_col="market_type",
+        p_up_col="p_up",
+        q10_col="q10_change_pct",
+        q50_col="q50_change_pct",
+        q90_col="q90_change_pct",
+        volatility_col="volatility_score",
+        confidence_col="confidence_score",
+        current_price_col="current_price",
+        risk_level_col="risk_level",
+    )
+    daily = apply_policy_frame(
+        daily,
+        cfg,
+        market_col="market",
+        market_type_col="market_type",
+        p_up_col="p_up",
+        q10_col="q10_change_pct",
+        q50_col="q50_change_pct",
+        q90_col="q90_change_pct",
+        volatility_col="volatility_score",
+        confidence_col="confidence_score",
+        current_price_col="current_price",
+        risk_level_col="risk_level",
+    )
+
+    # Non-trading sessions should not output synthetic probabilities for index session page.
+    inactive_mask = hourly["is_trading_hour"] != 1
+    for c in ["p_up", "p_down", "volatility_score", "confidence_score"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = np.nan
+    for c in ["q10_change_pct", "q50_change_pct", "q90_change_pct"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = np.nan
+    for c in ["target_price_q10", "target_price_q50", "target_price_q90"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = np.nan
+    for c in ["trend_label", "risk_level"]:
+        if c in hourly.columns:
+            hourly.loc[inactive_mask, c] = "-"
+
+    generated_bj = now_bj.strftime("%Y-%m-%d %H:%M:%S%z")
+    data_updated_bj = hourly_hist["timestamp_utc"].max().tz_convert("Asia/Shanghai").strftime("%Y-%m-%d %H:%M:%S%z")
+    source_actual = f"ticker={ticker_source};hourly={hourly_source};daily={daily_source};profile={mode_requested}_index_profile"
+    for frame in [hourly, blocks, daily]:
+        frame["forecast_generated_at_bj"] = generated_bj
+        frame["data_updated_at_bj"] = data_updated_bj
+        frame["model_version"] = f"index_{mode_requested}_v1"
+        frame["data_source_actual"] = source_actual
+        frame["current_price"] = current_price
+
+    meta = {
+        "index_key": index_key,
+        "index_name_zh": inst["name_zh"],
+        "index_name_en": inst["name_en"],
+        "symbol": symbol,
+        "exchange": "yahoo",
+        "exchange_actual": "yahoo",
+        "market_type": "index",
+        "mode_requested": mode_requested,
+        "mode_actual": mode_requested,
+        "horizon_hours": int(horizon_hours),
+        "lookforward_days": int(lookforward_days),
+        "current_price": float(current_price),
+        "forecast_generated_at_bj": generated_bj,
+        "data_updated_at_bj": data_updated_bj,
+        "model_version": f"index_{mode_requested}_v1",
+        "data_source_actual": source_actual,
+        "timezone": timezone,
+        "active_session": active_session,
+        "skipped_non_trading_days": skipped_non_trading_df.to_dict(orient="records"),
+    }
+    return hourly, blocks, daily, meta
+
+===== _render_hourly_heatmap (2641-2672) =====
+def _render_hourly_heatmap(
+    hourly_df: pd.DataFrame, value_col: str, title: str, *, horizon_hours: int
+) -> None:
+    if hourly_df.empty or value_col not in hourly_df.columns:
+        st.info(_t("暂无热力图数据。", "No heatmap data available."))
+        return
+    work = hourly_df.copy()
+    work = work.sort_values("hour_bj")
+    x = [f"{int(h):02d}:00" for h in work["hour_bj"].tolist()]
+    # Keep NaN so non-trading hours can render as blank instead of fake low values.
+    z_values = pd.to_numeric(work[value_col], errors="coerce").tolist()
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=[z_values],
+            x=x,
+            y=[title],
+            colorscale="Blues",
+            colorbar=dict(title=title),
+        )
+    )
+    fig.update_layout(
+        title=_t(
+            f"24小时热力图：从该小时开始的未来{int(horizon_hours)}h {title}（北京时间）",
+            f"24h Heatmap: Future {int(horizon_hours)}h from each hour start ({title}, Asia/Shanghai)",
+        ),
+        xaxis_title=_t("小时", "Hour"),
+        yaxis_title=_t("指标", "Metric"),
+        template="plotly_white",
+        height=260,
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+===== _prepare_session_trade_plan (2932-2998) =====
+def _prepare_session_trade_plan(
+    *,
+    hourly_df: pd.DataFrame,
+    blocks_df: pd.DataFrame,
+    meta: Dict[str, object],
+    horizon_hours: int,
+    market_mode: str,
+    active_session: str,
+    cfg: Dict[str, object],
+    model_health: str,
+    risk_profile: str,
+) -> Tuple[pd.Series, Dict[str, object]]:
+    now_bj = pd.Timestamp.now(tz="Asia/Shanghai")
+    row = _select_session_decision_row(
+        hourly_df,
+        current_hour_bj=int(now_bj.hour),
+        active_session=active_session,
+    )
+    if row.empty and not blocks_df.empty:
+        fallback = blocks_df.copy()
+        fallback["_strength"] = (pd.to_numeric(fallback.get("p_up"), errors="coerce") - 0.5).abs()
+        fallback = fallback.sort_values("_strength", ascending=False)
+        row = fallback.iloc[0]
+    if row.empty:
+        return pd.Series(dtype=object), {}
+
+    r = row.copy()
+    if "market" not in r.index:
+        if str(market_mode) == "crypto":
+            r["market"] = "crypto"
+        else:
+            r["market"] = str(meta.get("market", "us_equity"))
+    r["symbol"] = str(meta.get("symbol", r.get("symbol", "-")))
+    r["horizon_label"] = f"{int(horizon_hours)}h"
+    r["timezone"] = "Asia/Shanghai"
+    r["current_price"] = _safe_float(meta.get("current_price", r.get("current_price")))
+    r["price_source"] = str(meta.get("data_source_actual", r.get("price_source", "-")))
+    r["price_timestamp_market"] = str(meta.get("data_updated_at_bj", r.get("price_timestamp_market", "-")))
+    ts_bj = pd.to_datetime(r["price_timestamp_market"], errors="coerce")
+    if pd.notna(ts_bj):
+        if ts_bj.tzinfo is None:
+            ts_bj = ts_bj.tz_localize("Asia/Shanghai")
+        else:
+            ts_bj = ts_bj.tz_convert("Asia/Shanghai")
+        r["price_timestamp_utc"] = ts_bj.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+    else:
+        r["price_timestamp_utc"] = str(meta.get("price_timestamp_utc", "-"))
+    gen_bj = pd.to_datetime(meta.get("forecast_generated_at_bj"), errors="coerce")
+    if pd.notna(gen_bj):
+        if gen_bj.tzinfo is None:
+            gen_bj = gen_bj.tz_localize("Asia/Shanghai")
+        else:
+            gen_bj = gen_bj.tz_convert("Asia/Shanghai")
+        exp_bj = gen_bj + pd.Timedelta(hours=int(horizon_hours))
+        r["generated_at_utc"] = gen_bj.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+        r["expected_date_market"] = exp_bj.strftime("%Y-%m-%d %H:%M:%S %z")
+        r["expected_date_utc"] = exp_bj.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+    plan = _build_trade_decision_plan(
+        r,
+        cfg=cfg,
+        risk_profile=risk_profile,
+        model_health=model_health,
+        event_risk=bool(_safe_float(r.get("news_event_risk")) > 0.5),
+        persist_touch=True,
+        processed_dir=Path("data/processed"),
+    )
+    return r, plan
+
+===== _session_consensus (3001-3048) =====
+def _session_consensus(
+    *,
+    main_row: pd.Series,
+    compare_blocks: pd.DataFrame,
+) -> Dict[str, object]:
+    if main_row.empty or compare_blocks.empty:
+        return {
+            "aligned": None,
+            "badge": _t("未启用对照", "Compare off"),
+            "detail": _t("未计算 Forecast vs Seasonality 分歧。", "Forecast vs Seasonality comparison not computed."),
+        }
+    session_name = str(main_row.get("session_name", "")).strip().lower()
+    cmp = compare_blocks.copy()
+    if "session_name" in cmp.columns and session_name:
+        cmp = cmp[cmp["session_name"].astype(str).str.lower() == session_name]
+    if cmp.empty:
+        return {
+            "aligned": None,
+            "badge": _t("无对照数据", "No compare data"),
+            "detail": _t("对应时段缺少对照数据。", "No compare data for current session."),
+        }
+    cmp_row = cmp.iloc[0]
+    p_main = _safe_float(main_row.get("p_up"))
+    p_cmp = _safe_float(cmp_row.get("p_up"))
+    q_main = _safe_float(main_row.get("q50_change_pct"))
+    q_cmp = _safe_float(cmp_row.get("q50_change_pct"))
+    dir_main = 1 if np.isfinite(p_main) and p_main >= 0.5 else -1
+    dir_cmp = 1 if np.isfinite(p_cmp) and p_cmp >= 0.5 else -1
+    aligned = dir_main == dir_cmp
+    delta_p = p_main - p_cmp if np.isfinite(p_main) and np.isfinite(p_cmp) else float("nan")
+    delta_q = q_main - q_cmp if np.isfinite(q_main) and np.isfinite(q_cmp) else float("nan")
+    if aligned:
+        return {
+            "aligned": True,
+            "badge": _t("✅ 同向（2/2）", "✅ Aligned (2/2)"),
+            "detail": _t(
+                f"Forecast 与 Seasonality 同向；Δp_up={_fmt_pct_or_bps(delta_p)}，Δq50={_fmt_pct_or_bps(delta_q)}。",
+                f"Forecast and Seasonality are aligned; Δp_up={_fmt_pct_or_bps(delta_p)}, Δq50={_fmt_pct_or_bps(delta_q)}.",
+            ),
+        }
+    return {
+        "aligned": False,
+        "badge": _t("⚠️ 分歧（1/2）", "⚠️ Conflict (1/2)"),
+        "detail": _t(
+            f"Forecast 与 Seasonality 方向冲突；Δp_up={_fmt_pct_or_bps(delta_p)}，Δq50={_fmt_pct_or_bps(delta_q)}。建议降仓。",
+            f"Forecast conflicts with Seasonality; Δp_up={_fmt_pct_or_bps(delta_p)}, Δq50={_fmt_pct_or_bps(delta_q)}. Consider smaller size.",
+        ),
+    }
+
+===== _render_session_sticky_decision_card (3051-3149) =====
+def _render_session_sticky_decision_card(
+    *,
+    plan: Dict[str, object],
+    consensus: Dict[str, object],
+    model_health_text: str,
+    data_updated_bj: str,
+    model_version: str,
+    threshold_text: str,
+) -> None:
+    if not plan:
+        return
+    action = str(plan.get("action", "WAIT"))
+    action_text = str(plan.get("action_cn", _t("观望", "Wait")))
+    status = str(plan.get("trade_status", "WAIT_RULES"))
+    status_text = str(plan.get("trade_status_text", status))
+    status_note = str(plan.get("trade_status_note", "-"))
+    entry = _safe_float(plan.get("entry"))
+    sl = _safe_float(plan.get("stop_loss"))
+    tp1 = _safe_float(plan.get("take_profit"))
+    tp2 = _safe_float(plan.get("take_profit_2"))
+    rr = _safe_float(plan.get("rr"))
+    edge_long = _safe_float(plan.get("edge_long"))
+    edge_short = _safe_float(plan.get("edge_short"))
+    side = str(plan.get("plan_side", "LONG")).upper()
+    edge_active = edge_long if side == "LONG" else edge_short
+    gap_pct = _safe_float(plan.get("entry_gap_pct"))
+    touched = bool(plan.get("entry_touched", False))
+    touched_at = str(plan.get("entry_touched_at", "")).strip()
+    entry_state = (
+        _t("已触发 ✅", "Touched ✅")
+        if touched
+        else _t(f"距离入场 { _fmt_pct_or_bps(gap_pct) }", f"Distance to entry { _fmt_pct_or_bps(gap_pct) }")
+    )
+    if touched and touched_at:
+        entry_state = _t(f"已触发 ✅（{touched_at}）", f"Touched ✅ ({touched_at})")
+
+    def _dist_text(level: float) -> str:
+        if not (np.isfinite(level) and np.isfinite(entry) and abs(entry) > 1e-12):
+            return "-"
+        dist = (level - entry) / entry
+        return f"{_format_price(level)} ({_fmt_pct_or_bps(abs(dist), signed=False)})"
+
+    action_color = _action_color(action)
+    status_color = _status_color(status)
+    consensus_badge = _html_escape(consensus.get("badge", "-"))
+    consensus_detail = _html_escape(consensus.get("detail", "-"))
+    html = f"""
+    <style>
+      .sf-sticky-card {{
+        position: sticky;
+        top: 0.35rem;
+        z-index: 980;
+        border: 1px solid rgba(148,163,184,.35);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin: 8px 0 12px 0;
+        background: rgba(2, 6, 23, .94);
+        backdrop-filter: blur(4px);
+      }}
+      .sf-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(180px, 1fr));
+        gap: 8px 16px;
+      }}
+      .sf-k {{ font-size: 12px; color: #94a3b8; }}
+      .sf-v {{ font-size: 22px; font-weight: 700; color: #e2e8f0; line-height: 1.2; }}
+      .sf-v-sm {{ font-size: 16px; font-weight: 700; color: #e2e8f0; line-height: 1.2; }}
+      .sf-top {{
+        display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 8px;
+      }}
+      .sf-note {{ font-size: 12px; color: #cbd5e1; margin-top: 4px; }}
+    </style>
+    <div class="sf-sticky-card">
+      <div class="sf-top">
+        <div>
+          <div class="sf-k">{_html_escape(_t("一眼决策卡（交易时段）", "Quick Decision Card (Session)"))}</div>
+          <div class="sf-v" style="color:{action_color}">{_html_escape(action)} / {_html_escape(action_text)}</div>
+          <div class="sf-note">{_html_escape(status_text)} · {_html_escape(status_note)}</div>
+          <div class="sf-note">{consensus_badge} · {consensus_detail}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="sf-k">{_html_escape(_t("模型健康/数据新鲜度", "Model Health / Freshness"))}</div>
+          <div class="sf-v-sm">{_html_escape(model_health_text)}</div>
+          <div class="sf-note">{_html_escape(_t("数据更新", "Data updated"))}: {_html_escape(data_updated_bj)}</div>
+          <div class="sf-note">model={_html_escape(model_version)}</div>
+          <div class="sf-note">{_html_escape(threshold_text)}</div>
+        </div>
+      </div>
+      <div class="sf-grid">
+        <div><div class="sf-k">{_html_escape(_t("执行状态", "Execution Status"))}</div><div class="sf-v-sm" style="color:{status_color}">{_html_escape(status_text)}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("入场价", "Entry"))}</div><div class="sf-v-sm">{_html_escape(_format_price(entry))}</div><div class="sf-note">{_html_escape(entry_state)}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("止损 SL", "Stop Loss"))}</div><div class="sf-v-sm">{_html_escape(_dist_text(sl))}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("止盈 TP1", "Take Profit TP1"))}</div><div class="sf-v-sm">{_html_escape(_dist_text(tp1))}</div></div>
+        <div><div class="sf-k">{_html_escape(_t("止盈 TP2", "Take Profit TP2"))}</div><div class="sf-v-sm">{_html_escape(_dist_text(tp2))}</div></div>
+        <div><div class="sf-k">RR / {_html_escape(_t("净Edge", "Net Edge"))}</div><div class="sf-v-sm">{_html_escape(_format_float(rr, 2))} / {_html_escape(_fmt_pct_or_bps(edge_active))}</div></div>
+      </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+===== _render_session_trade_plan_block (3152-3182) =====
+def _render_session_trade_plan_block(
+    *,
+    plan: Dict[str, object],
+    p_bull: float,
+    p_bear: float,
+    conf_min: float,
+) -> None:
+    if not plan:
+        return
+    st.markdown(f"### {_t('Trade Plan（净收益口径）', 'Trade Plan (Net Basis)')}")
+    entry = _safe_float(plan.get("entry"))
+    sl = _safe_float(plan.get("stop_loss"))
+    q50 = _safe_float(plan.get("q50"))
+    side = str(plan.get("plan_side", "LONG")).upper()
+    q50_signed = q50 if side == "LONG" else -q50
+    edge_after_cost = _safe_float(plan.get("edge_long") if side == "LONG" else plan.get("edge_short"))
+    risk_pct = float("nan")
+    if np.isfinite(entry) and np.isfinite(sl) and abs(entry) > 1e-12:
+        risk_pct = abs((entry - sl) / entry)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(_t("预期收益(q50)", "Expected Return (q50)"), _fmt_pct_or_bps(q50_signed))
+    c2.metric(_t("风险（到SL）", "Risk (to SL)"), _fmt_pct_or_bps(risk_pct, signed=False))
+    c3.metric("RR", _format_float(plan.get("rr"), 2))
+    c4.metric(_t("扣成本后净Edge", "Net Edge After Cost"), _fmt_pct_or_bps(edge_after_cost))
+    st.caption(
+        _t(
+            f"执行阈值：Long需 p_up>={p_bull:.2f}；Short需 p_up<={p_bear:.2f}；confidence>={conf_min:.1f}；且 edge_net>0。",
+            f"Execution thresholds: Long p_up>={p_bull:.2f}; Short p_up<={p_bear:.2f}; confidence>={conf_min:.1f}; and edge_net>0.",
+        )
+    )
+    st.caption(_t("说明：到价 ≠ 开仓；到价只是触发条件之一，规则未通过仍会观望。", "Note: entry touch != execution; entry is only one condition and rules must pass."))
+
+===== _render_top_tables (3722-3952) =====
+def _render_top_tables(
+    hourly_df: pd.DataFrame,
+    daily_df: pd.DataFrame,
+    top_n: int,
+    *,
+    rank_key: str,
+    cost_bps: float,
+    weak_pp: float,
+    strong_pp: float,
+    horizon_hours: int,
+) -> None:
+    rank_name = _rank_metric_options().get(rank_key, rank_key)
+    st.caption(
+        _t(
+            f"榜单统一排序：{rank_name} | 成本估计：{float(cost_bps):.1f} bps | "
+            f"小时级语义：从该小时起算未来 {int(horizon_hours)}h。",
+            f"Ranking: {rank_name} | Cost estimate: {float(cost_bps):.1f} bps | "
+            f"Hourly semantics: future {int(horizon_hours)}h from each hour start.",
+        )
+    )
+
+    col_trend = _t("趋势", "Trend")
+    col_risk = _t("风险", "Risk")
+    col_pup = _t("上涨概率", "P(up)")
+    col_pdown = _t("下跌概率", "P(down)")
+    col_q50 = _t("预期涨跌幅", "Expected Change")
+    col_target = _t("目标价格(q50)", "Target Price (q50)")
+    col_strength = _t("信号强弱", "Signal Strength")
+    col_edge = _t("机会值(edge)", "Edge")
+    col_edge_risk = _t("风险调整机会", "Risk-adjusted Edge")
+    col_edge_short = _t("空头机会(edge)", "Short Edge")
+    col_edge_risk_short = _t("空头风险调整机会", "Short Risk-adjusted Edge")
+    col_action = _t("策略动作", "Policy Action")
+    col_pos = _t("建议仓位", "Position Size")
+    col_net_edge = _t("预期净优势", "Expected Net Edge")
+    col_conf = _t("置信度", "Confidence")
+    hour_section_up = _t("小时级：最可能上涨 Top N", "Hourly: Top N Upside")
+    hour_section_down = _t("小时级：最可能下跌 Top N", "Hourly: Top N Downside")
+    hour_section_vol = _t("小时级：最可能大波动 Top N", "Hourly: Top N Volatility")
+    day_section_up = _t("日线级：最可能上涨 Top N", "Daily: Top N Upside")
+    day_section_down = _t("日线级：最可能下跌 Top N", "Daily: Top N Downside")
+    day_section_vol = _t("日线级：最可能大波动 Top N", "Daily: Top N Volatility")
+
+    if hourly_df.empty:
+        st.info(_t("暂无小时级榜单数据。", "No hourly ranking data available."))
+    else:
+        h = hourly_df.copy()
+        h = _append_signal_strength_columns(h, weak_pp=weak_pp, strong_pp=strong_pp)
+        h = _append_edge_columns(h, cost_bps=cost_bps)
+        h[col_trend] = h["trend_label"].map(_trend_text)
+        h[col_risk] = h["risk_level"].map(_risk_text)
+        h[col_pup] = h["p_up"].map(lambda x: _format_change_pct(x).replace("+", ""))
+        h[col_pdown] = h["p_down"].map(lambda x: _format_change_pct(x).replace("+", ""))
+        h[col_q50] = h["q50_change_pct"].map(_format_change_pct)
+        h[col_target] = h["target_price_q50"].map(_format_price)
+        h[col_conf] = h["confidence_score"].map(lambda x: _format_float(x, 1))
+        h[col_strength] = h.apply(
+            lambda r: _format_signal_strength(
+                r.get("signal_strength_label", "-"),
+                r.get("signal_strength_pp"),
+                r.get("signal_strength_score"),
+            ),
+            axis=1,
+        )
+        h[col_edge] = h["edge_score"].map(_format_change_pct)
+        h[col_edge_risk] = h["edge_risk"].map(lambda x: _format_float(x, 3))
+        h[col_edge_short] = h["edge_score_short"].map(_format_change_pct)
+        h[col_edge_risk_short] = h["edge_risk_short"].map(lambda x: _format_float(x, 3))
+        if "policy_action" in h.columns:
+            h[col_action] = h["policy_action"].map(_policy_action_text)
+            h[col_pos] = h["policy_position_size"].map(
+                lambda x: f"{float(x):.1%}" if _is_finite_number(x) else "-"
+            )
+            h[col_net_edge] = h["policy_expected_edge_pct"].map(_format_change_pct)
+
+        up_rank = _sort_by_rank(h, rank_key=rank_key, side="up")
+        down_rank = _sort_by_rank(h, rank_key=rank_key, side="down")
+        vol_rank = _sort_by_rank(h, rank_key=rank_key, side="vol")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f"**{hour_section_up}（{rank_name}）**")
+            cols = [
+                "hour_label",
+                col_pup,
+                col_q50,
+                col_target,
+                col_strength,
+                col_edge,
+                col_edge_risk,
+                col_action,
+                col_pos,
+                col_net_edge,
+                col_trend,
+                col_risk,
+                col_conf,
+            ]
+            cols = [c for c in cols if c in h.columns]
+            st.dataframe(up_rank[cols].head(top_n), use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown(f"**{hour_section_down}（{rank_name}）**")
+            cols = [
+                "hour_label",
+                col_pdown,
+                col_q50,
+                col_target,
+                col_strength,
+                col_edge_short,
+                col_edge_risk_short,
+                col_action,
+                col_pos,
+                col_net_edge,
+                col_trend,
+                col_risk,
+                col_conf,
+            ]
+            cols = [c for c in cols if c in h.columns]
+            st.dataframe(down_rank[cols].head(top_n), use_container_width=True, hide_index=True)
+        with c3:
+            st.markdown(f"**{hour_section_vol}（{rank_name}）**")
+            cols = [
+                "hour_label",
+                col_q50,
+                col_target,
+                col_strength,
+                col_edge,
+                col_edge_risk,
+                col_action,
+                col_pos,
+                col_net_edge,
+                col_trend,
+                col_risk,
+                col_conf,
+            ]
+            cols = [c for c in cols if c in h.columns]
+            st.dataframe(vol_rank[cols].head(top_n), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    if daily_df.empty:
+        st.info(_t("暂无日线级榜单数据。", "No daily ranking data available."))
+    else:
+        d = daily_df.copy()
+        d = _append_signal_strength_columns(d, weak_pp=weak_pp, strong_pp=strong_pp)
+        d = _append_edge_columns(d, cost_bps=cost_bps)
+        d[col_trend] = d["trend_label"].map(_trend_text)
+        d[col_risk] = d["risk_level"].map(_risk_text)
+        d[col_pup] = d["p_up"].map(lambda x: _format_change_pct(x).replace("+", ""))
+        d[col_pdown] = d["p_down"].map(lambda x: _format_change_pct(x).replace("+", ""))
+        d[col_q50] = d["q50_change_pct"].map(_format_change_pct)
+        d[col_target] = d["target_price_q50"].map(_format_price)
+        d[col_conf] = d["confidence_score"].map(lambda x: _format_float(x, 1))
+        d[col_strength] = d.apply(
+            lambda r: _format_signal_strength(
+                r.get("signal_strength_label", "-"),
+                r.get("signal_strength_pp"),
+                r.get("signal_strength_score"),
+            ),
+            axis=1,
+        )
+        d[col_edge] = d["edge_score"].map(_format_change_pct)
+        d[col_edge_risk] = d["edge_risk"].map(lambda x: _format_float(x, 3))
+        d[col_edge_short] = d["edge_score_short"].map(_format_change_pct)
+        d[col_edge_risk_short] = d["edge_risk_short"].map(lambda x: _format_float(x, 3))
+        if "policy_action" in d.columns:
+            d[col_action] = d["policy_action"].map(_policy_action_text)
+            d[col_pos] = d["policy_position_size"].map(
+                lambda x: f"{float(x):.1%}" if _is_finite_number(x) else "-"
+            )
+            d[col_net_edge] = d["policy_expected_edge_pct"].map(_format_change_pct)
+
+        up_rank = _sort_by_rank(d, rank_key=rank_key, side="up")
+        down_rank = _sort_by_rank(d, rank_key=rank_key, side="down")
+        vol_rank = _sort_by_rank(d, rank_key=rank_key, side="vol")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f"**{day_section_up}（{rank_name}）**")
+            cols = [
+                "date_bj",
+                col_pup,
+                col_q50,
+                col_target,
+                col_strength,
+                col_edge,
+                col_edge_risk,
+                col_action,
+                col_pos,
+                col_net_edge,
+                col_trend,
+                col_risk,
+                col_conf,
+            ]
+            cols = [c for c in cols if c in d.columns]
+            st.dataframe(up_rank[cols].head(top_n), use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown(f"**{day_section_down}（{rank_name}）**")
+            cols = [
+                "date_bj",
+                col_pdown,
+                col_q50,
+                col_target,
+                col_strength,
+                col_edge_short,
+                col_edge_risk_short,
+                col_action,
+                col_pos,
+                col_net_edge,
+                col_trend,
+                col_risk,
+                col_conf,
+            ]
+            cols = [c for c in cols if c in d.columns]
+            st.dataframe(down_rank[cols].head(top_n), use_container_width=True, hide_index=True)
+        with c3:
+            st.markdown(f"**{day_section_vol}（{rank_name}）**")
+            cols = [
+                "date_bj",
+                col_q50,
+                col_target,
+                col_strength,
+                col_edge,
+                col_edge_risk,
+                col_action,
+                col_pos,
+                col_net_edge,
+                col_trend,
+                col_risk,
+                col_conf,
+            ]
+            cols = [c for c in cols if c in d.columns]
+            st.dataframe(vol_rank[cols].head(top_n), use_container_width=True, hide_index=True)
+
+===== _render_crypto_session_page (3955-4522) =====
+def _render_crypto_session_page() -> None:
+    st.header(_t("交易时间段预测（Crypto）", "Session Forecast (Crypto)"))
+    st.caption(
+        _t(
+            "北京时间24小时制；支持亚盘/欧盘/美盘、关键小时概率与未来N天日线预测。",
+            "Beijing-time 24h view with Asia/Europe/US sessions, key-hour probabilities, and next-N-day daily forecast.",
+        )
+    )
+
+    if "session_refresh_token" not in st.session_state:
+        st.session_state["session_refresh_token"] = 0
+
+    cfg = {}
+    try:
+        import yaml
+
+        cfg = yaml.safe_load(Path("configs/config.yaml").read_text(encoding="utf-8")) or {}
+    except Exception:
+        cfg = {}
+    fc = cfg.get("forecast_config", {})
+    source_cfg = fc.get("data_source", {})
+    strength_cfg = fc.get("signal_strength", {})
+    rank_cfg = fc.get("ranking", {})
+
+    symbols = fc.get("symbols", {}).get("default", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+    exchanges = source_cfg.get("exchanges", ["binance", "bybit"])
+    market_types = source_cfg.get("market_types", ["perp", "spot"])
+    default_exchange = source_cfg.get("default_exchange", "binance")
+    default_market_type = source_cfg.get("default_market_type", "perp")
+    default_horizon = int(fc.get("hourly", {}).get("horizon_hours", 4))
+    default_days = int(fc.get("daily", {}).get("lookforward_days", 14))
+    weak_pp = float(strength_cfg.get("weak_threshold_pp", 2.0))
+    strong_pp = float(strength_cfg.get("strong_threshold_pp", 5.0))
+    default_cost_bps = float(rank_cfg.get("cost_bps", 8.0))
+
+    f1, f2, f3, f4, f5 = st.columns([2, 1, 1, 1, 1])
+    symbol = f1.selectbox(_t("币种", "Symbol"), options=symbols, index=0, key="session_symbol")
+    exchange = f2.selectbox(
+        _t("数据源", "Exchange"),
+        options=exchanges,
+        index=exchanges.index(default_exchange) if default_exchange in exchanges else 0,
+        key="session_exchange",
+    )
+    market_type = f3.selectbox(
+        _t("市场类型", "Market Type"),
+        options=market_types,
+        index=market_types.index(default_market_type) if default_market_type in market_types else 0,
+        key="session_market_type",
+    )
+    mode = f4.selectbox(_t("模式", "Mode"), options=["forecast", "seasonality"], index=0, key="session_mode")
+    horizon_hours = int(
+        f5.selectbox(_t("小时周期", "Horizon (hour)"), options=[4], index=0 if default_horizon == 4 else 0, key="session_horizon")
+    )
+
+    c1, c2, c3 = st.columns([1, 2, 1.2])
+    lookforward_days = int(c1.slider(_t("未来N天（日线）", "Next N Days (daily)"), 7, 30, default_days, 1, key="session_daily_n"))
+    compare_view = bool(c2.checkbox(_t("对照视图：Forecast vs Seasonality", "Compare View: Forecast vs Seasonality"), value=False, key="session_compare_view"))
+    view_mode = c3.selectbox(
+        _t("视图模式", "View Mode"),
+        options=[_t("专业模式", "Pro"), _t("新手模式", "Beginner")],
+        index=0,
+        key="session_view_mode",
+    )
+    is_pro_mode = str(view_mode) == _t("专业模式", "Pro")
+    risk_profile = c3.selectbox(
+        _t("风险偏好", "Risk Profile"),
+        options=[_t("标准", "Standard"), _t("保守", "Conservative"), _t("激进", "Aggressive")],
+        index=0,
+        key="session_risk_profile",
+    )
+    if c2.button(_t("刷新并重算", "Refresh and Recompute"), key="session_refresh_btn"):
+        st.session_state["session_refresh_token"] += 1
+
+    try:
+        hourly_df, blocks_df, daily_df, meta = _build_session_bundle_cached(
+            symbol=symbol,
+            exchange=exchange,
+            market_type=market_type,
+            mode=mode,
+            horizon_hours=horizon_hours,
+            lookforward_days=lookforward_days,
+            refresh_token=int(st.session_state["session_refresh_token"]),
+        )
+    except Exception as exc:
+        st.error(_t(f"时段预测计算失败：{exc}", f"Session forecast failed: {exc}"))
+        return
+
+    mode_actual = str(meta.get("mode_actual", mode))
+    if mode_actual != mode:
+        st.warning(_t(f"请求模式是 `{mode}`，当前自动降级为 `{mode_actual}`。", f"Requested mode `{mode}` downgraded to `{mode_actual}`."))
+    st.caption(
+        _t(
+            f"最新价格：{_format_price(meta.get('current_price'))} | {_ui_timezone_label()}更新时间：{_fmt_ts_for_ui(meta.get('data_updated_at_bj', '-'))} | 模式/周期：{mode_actual} / {int(horizon_hours)}h",
+            f"Latest Price: {_format_price(meta.get('current_price'))} | Updated ({_ui_timezone_label()}): {_fmt_ts_for_ui(meta.get('data_updated_at_bj', '-'))} | Mode/Horizon: {mode_actual} / {int(horizon_hours)}h",
+        )
+    )
+
+    data_version_seed = (
+        f"{meta.get('symbol', '-')}"
+        f"|{meta.get('exchange_actual', '-')}"
+        f"|{meta.get('market_type', '-')}"
+        f"|{meta.get('data_updated_at_bj', '-')}"
+        f"|{meta.get('data_source_actual', '-')}"
+    )
+    data_version = hashlib.sha1(data_version_seed.encode("utf-8")).hexdigest()[:12]
+    with st.expander(_t("数据 & 模型信息", "Data & Model Info"), expanded=False):
+        st.markdown(
+            _t(
+                f"- 数据源：{meta.get('exchange_actual', '-')} / {meta.get('market_type', '-')} / {meta.get('symbol', '-')}\n"
+                f"- 请求数据源：{meta.get('exchange', '-')}\n"
+                f"- {_ui_timezone_label()}数据更新时间：{_fmt_ts_for_ui(meta.get('data_updated_at_bj', '-'))}\n"
+                f"- {_ui_timezone_label()}预测生成时间：{_fmt_ts_for_ui(meta.get('forecast_generated_at_bj', '-'))}\n"
+                f"- horizon={int(horizon_hours)}h / mode={mode_actual}\n"
+                f"- model_version：{meta.get('model_version', '-')}\n"
+                f"- data_version：{data_version}\n"
+                f"- git_hash：{_get_git_hash_short_cached()}",
+                f"- Source: {meta.get('exchange_actual', '-')} / {meta.get('market_type', '-')} / {meta.get('symbol', '-')}\n"
+                f"- Requested source: {meta.get('exchange', '-')}\n"
+                f"- Data updated ({_ui_timezone_label()}): {_fmt_ts_for_ui(meta.get('data_updated_at_bj', '-'))}\n"
+                f"- Forecast generated ({_ui_timezone_label()}): {_fmt_ts_for_ui(meta.get('forecast_generated_at_bj', '-'))}\n"
+                f"- horizon={int(horizon_hours)}h / mode={mode_actual}\n"
+                f"- model_version: {meta.get('model_version', '-')}\n"
+                f"- data_version: {data_version}\n"
+                f"- git_hash: {_get_git_hash_short_cached()}",
+            )
+        )
+        st.caption(f"Data Source Detail: {meta.get('data_source_actual', '-')}")
+
+    policy_cfg = (cfg.get("policy", {}) if isinstance(cfg, dict) else {})
+    th_cfg = policy_cfg.get("thresholds", {})
+    ex_cfg = policy_cfg.get("execution", {})
+    decision_cfg = (cfg.get("decision", {}) if isinstance(cfg, dict) else {})
+    p_bull = float(th_cfg.get("p_bull", 0.55))
+    p_bear = float(th_cfg.get("p_bear", 0.45))
+    conf_min = float(decision_cfg.get("confidence_min", 60.0))
+    cost_bps_plan = float(ex_cfg.get("fee_bps", 10.0)) + float(ex_cfg.get("slippage_bps", 10.0))
+    threshold_text = _t(
+        f"阈值 p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+        f"Thresholds p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+    )
+
+    compare_mode = "seasonality" if mode == "forecast" else "forecast"
+    cmp_hourly = pd.DataFrame()
+    cmp_blocks = pd.DataFrame()
+    cmp_meta: Dict[str, object] = {}
+    try:
+        cmp_hourly, cmp_blocks, _, cmp_meta = _build_session_bundle_cached(
+            symbol=symbol,
+            exchange=exchange,
+            market_type=market_type,
+            mode=compare_mode,
+            horizon_hours=horizon_hours,
+            lookforward_days=lookforward_days,
+            refresh_token=int(st.session_state["session_refresh_token"]),
+        )
+    except Exception:
+        cmp_hourly = pd.DataFrame()
+        cmp_blocks = pd.DataFrame()
+        cmp_meta = {}
+
+    rel_summary, _, rel_msg = _compute_recent_symbol_reliability_cached(
+        market="crypto",
+        symbol=str(meta.get("symbol", symbol)),
+        provider=str(meta.get("exchange_actual", exchange)) if str(meta.get("exchange_actual", exchange)) in {"binance", "coingecko"} else "binance",
+        fallback_symbol=str(meta.get("symbol", symbol)),
+        horizon_steps=1,
+        window_days=30,
+    )
+    model_health_level = _model_health_grade(rel_summary)
+    model_health_text = _t("模型健康", "Model Health") + f": {_model_health_text(model_health_level)}"
+    if rel_summary:
+        model_health_text = _t(
+            f"{_model_health_text(model_health_level)}（Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')}）",
+            f"{_model_health_text(model_health_level)} (Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')})",
+        )
+
+    plan_row, trade_plan = _prepare_session_trade_plan(
+        hourly_df=hourly_df,
+        blocks_df=blocks_df,
+        meta={**meta, "market": "crypto"},
+        horizon_hours=int(horizon_hours),
+        market_mode="crypto",
+        active_session="all",
+        cfg=cfg,
+        model_health=model_health_level,
+        risk_profile=str(risk_profile),
+    )
+    consensus = _session_consensus(main_row=plan_row, compare_blocks=cmp_blocks)
+    if trade_plan:
+        _render_session_sticky_decision_card(
+            plan=trade_plan,
+            consensus=consensus,
+            model_health_text=model_health_text,
+            data_updated_bj=str(meta.get("data_updated_at_bj", "-")),
+            model_version=str(meta.get("model_version", "-")),
+            threshold_text=threshold_text,
+        )
+        _render_session_trade_plan_block(
+            plan=trade_plan,
+            p_bull=p_bull,
+            p_bear=p_bear,
+            conf_min=conf_min,
+        )
+    if rel_msg and is_pro_mode:
+        st.caption(rel_msg)
+
+    # Session cards
+    if blocks_df.empty:
+        st.info(_t("暂无时段汇总数据。", "No session summary data available."))
+    else:
+        cards = _append_signal_strength_columns(blocks_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
+        # Always use language-aware session display name for UI.
+        cards["session_name_cn"] = cards["session_name"].map(_session_display_name)
+        cards = cards.sort_values(
+            "session_name", key=lambda s: s.map({"asia": 0, "europe": 1, "us": 2}).fillna(9)
+        )
+        cols = st.columns(3)
+        for idx, (_, row) in enumerate(cards.iterrows()):
+            col = cols[idx % 3]
+            with col:
+                st.markdown(f"**{row.get('session_name_cn', '-') }（{row.get('session_hours', '-') }）**")
+                st.metric(_t("上涨概率", "P(up)"), _format_change_pct(row.get("p_up")).replace("+", ""))
+                st.metric(_t("下跌概率", "P(down)"), _format_change_pct(row.get("p_down")).replace("+", ""))
+                st.metric(_t("预期涨跌幅(q50)", "Expected Change (q50)"), _format_change_pct(row.get("q50_change_pct")))
+                st.metric(_t("目标价格(q50)", "Target Price (q50)"), _format_price(row.get("target_price_q50")))
+                _render_signal_badge(row.get("signal_strength_label", "-"))
+                st.caption(
+                    _t("信号强度：", "Signal strength: ")
+                    + _format_signal_strength(
+                        row.get("signal_strength_label", "-"),
+                        row.get("signal_strength_pp"),
+                        row.get("signal_strength_score"),
+                    )
+                )
+                st.caption(
+                    _t(
+                        f"趋势：{_trend_text(str(row.get('trend_label', '-')))} | "
+                        f"风险：{_risk_text(str(row.get('risk_level', '-')))} | "
+                        f"置信度：{_format_float(row.get('confidence_score'), 1)}",
+                        f"Trend: {_trend_text(str(row.get('trend_label', '-')))} | "
+                        f"Risk: {_risk_text(str(row.get('risk_level', '-')))} | "
+                        f"Confidence: {_format_float(row.get('confidence_score'), 1)}",
+                    )
+                )
+                if "policy_action" in row.index:
+                    st.caption(
+                        _t(
+                            f"策略：{_policy_action_text(str(row.get('policy_action', 'Flat')))} | "
+                            f"仓位：{(float(row.get('policy_position_size')) if _is_finite_number(row.get('policy_position_size')) else 0.0):.1%} | "
+                            f"净优势：{_format_change_pct(row.get('policy_expected_edge_pct'))}",
+                            f"Action: {_policy_action_text(str(row.get('policy_action', 'Flat')))} | "
+                            f"Size: {(float(row.get('policy_position_size')) if _is_finite_number(row.get('policy_position_size')) else 0.0):.1%} | "
+                            f"Net edge: {_format_change_pct(row.get('policy_expected_edge_pct'))}",
+                        )
+                    )
+
+    st.caption(
+        _t(
+            f"信号解释：`弱信号` (<{weak_pp:.1f}pp) 接近抛硬币，谨慎解读；"
+            f"`中信号` ({weak_pp:.1f}-{strong_pp:.1f}pp)；`强信号` (>{strong_pp:.1f}pp)。",
+            f"Signal guide: `Weak` (<{weak_pp:.1f}pp) is close to coin flip; "
+            f"`Medium` ({weak_pp:.1f}-{strong_pp:.1f}pp); `Strong` (>{strong_pp:.1f}pp).",
+        )
+    )
+
+    if compare_view and is_pro_mode:
+        try:
+            st.markdown(f"### {_t('Forecast vs Seasonality 对照（同参数）', 'Forecast vs Seasonality (same params)')}")
+            st.caption(
+                _t(
+                    f"当前模式：{mode_actual} | 对照模式：{cmp_meta.get('mode_actual', compare_mode)} | "
+                    "重点看 Δp_up（Forecast - Seasonality）。",
+                    f"Current mode: {mode_actual} | Compare mode: {cmp_meta.get('mode_actual', compare_mode)} | "
+                    "Focus on Δp_up (Forecast - Seasonality).",
+                )
+            )
+            if not blocks_df.empty and not cmp_blocks.empty:
+                left = blocks_df[["session_name", "session_name_cn", "p_up", "q50_change_pct"]].copy()
+                right = cmp_blocks[["session_name", "p_up", "q50_change_pct"]].copy()
+                merged = left.merge(right, on="session_name", how="inner", suffixes=("_main", "_cmp"))
+                merged["Δp_up"] = merged["p_up_main"] - merged["p_up_cmp"]
+                merged["Δq50"] = merged["q50_change_pct_main"] - merged["q50_change_pct_cmp"]
+                show = merged.rename(
+                    columns={
+                        "session_name_cn": _t("时段", "Session"),
+                        "p_up_main": f"{mode_actual} p_up",
+                        "p_up_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
+                        "q50_change_pct_main": f"{mode_actual} q50",
+                        "q50_change_pct_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} q50",
+                    }
+                )
+                fmt = {
+                    c: "{:.2%}"
+                    for c in [
+                        f"{mode_actual} p_up",
+                        f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
+                        f"{mode_actual} q50",
+                        f"{cmp_meta.get('mode_actual', compare_mode)} q50",
+                        "Δp_up",
+                        "Δq50",
+                    ]
+                    if c in show.columns
+                }
+                styled_cmp = show.style.format(fmt, na_rep="-")
+                delta_cols = [c for c in ["Δp_up", "Δq50"] if c in show.columns]
+                if delta_cols:
+                    styled_cmp = styled_cmp.applymap(_style_signed_value, subset=delta_cols)
+                st.dataframe(styled_cmp, use_container_width=True, hide_index=True)
+                st.caption(_t("若 Δp_up 绝对值较大，说明模型观点与历史季节性节奏有明显偏离。", "A large absolute Δp_up means model view significantly deviates from historical seasonality."))
+            else:
+                st.info(_t("对照视图数据不足。", "Insufficient data for compare view."))
+        except Exception as exc:
+            st.warning(_t(f"对照视图构建失败：{exc}", f"Failed to build compare view: {exc}"))
+
+    st.markdown("---")
+    tab_up = _t("上涨概率", "P(up)")
+    tab_down = _t("下跌概率", "P(down)")
+    tab_vol = _t("波动强度", "Volatility")
+    tab_conf = _t("置信度", "Confidence")
+    tab1, tab2, tab3, tab4 = st.tabs([tab_up, tab_down, tab_vol, tab_conf])
+    with tab1:
+        _render_hourly_heatmap(hourly_df, "p_up", tab_up, horizon_hours=horizon_hours)
+    with tab2:
+        _render_hourly_heatmap(hourly_df, "p_down", tab_down, horizon_hours=horizon_hours)
+    with tab3:
+        _render_hourly_heatmap(hourly_df, "volatility_score", tab_vol, horizon_hours=horizon_hours)
+    with tab4:
+        _render_hourly_heatmap(hourly_df, "confidence_score", tab_conf, horizon_hours=horizon_hours)
+
+    _render_simulated_kline_panel(
+        panel_key="crypto_session",
+        step_profile=hourly_df,
+        daily_profile=daily_df,
+        current_price=_safe_float(meta.get("current_price")),
+        market_mode="crypto",
+        symbol_or_index=str(meta.get("symbol", symbol)),
+        reference_ts_bj=str(meta.get("forecast_generated_at_bj", meta.get("data_updated_at_bj", ""))),
+        active_session="all",
+        trade_plan=trade_plan,
+    )
+
+    if not is_pro_mode:
+        st.info(_t("当前为新手模式：已保留决策卡与关键图表。切换到专业模式可查看完整日线表、TopN、可靠性面板。", "Beginner mode: key decision and charts are shown. Switch to Pro mode for full daily table, TopN, and reliability panel."))
+        return
+
+    st.markdown("---")
+    st.subheader(_t("未来N天日线预测", "Next N-day Daily Forecast"))
+    oneway_state = float(st.session_state.get("session_cost_bps_oneway", max(0.0, default_cost_bps / 2.0)))
+    default_side = _t("双边(开+平)", "Round-trip (open+close)")
+    cost_side_state = str(st.session_state.get("session_cost_side", default_side))
+    is_round_trip = cost_side_state.startswith("双边") or cost_side_state.startswith("Round-trip")
+    cost_bps_state = oneway_state * (2.0 if is_round_trip else 1.0)
+    if daily_df.empty:
+        st.info(_t("暂无日线预测数据。", "No daily forecast data."))
+    else:
+        d = _append_signal_strength_columns(daily_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
+        d = _append_edge_columns(d, cost_bps=cost_bps_state)
+        col_trend = _t("趋势", "Trend")
+        col_risk = _t("风险", "Risk")
+        col_strength = _t("信号强弱", "Signal Strength")
+        col_strength_score = _t("强度分(0-100)", "Strength(0-100)")
+        col_edge = _t("机会值(edge)", "Edge")
+        col_edge_risk = _t("风险调整机会", "Edge/Risk")
+        col_vol = _t("波动强度", "Volatility")
+        col_action = _t("策略动作", "Policy Action")
+        col_pos = _t("建议仓位", "Position Size")
+        col_net_edge = _t("预期净优势", "Expected Net Edge")
+        d[col_trend] = d["trend_label"].map(_trend_text)
+        d[col_risk] = d["risk_level"].map(_risk_text)
+        d[col_strength] = d["signal_strength_label"].map(_signal_strength_text)
+        d[col_strength_score] = d["signal_strength_score"]
+        d[col_edge] = d["edge_score"]
+        d[col_edge_risk] = d["edge_risk"]
+        d[col_vol] = pd.to_numeric(d.get("volatility_score"), errors="coerce")
+        if "policy_action" in d.columns:
+            d[col_action] = d["policy_action"].map(_policy_action_text)
+            d[col_pos] = d["policy_position_size"]
+            d[col_net_edge] = pd.to_numeric(d["policy_expected_edge_pct"], errors="coerce")
+
+        show_cols = [
+            "date_bj",
+            "day_of_week",
+            "p_up",
+            "p_down",
+            "q50_change_pct",
+            "target_price_q10",
+            "target_price_q50",
+            "target_price_q90",
+            "start_window_top1",
+            col_vol,
+            col_strength,
+            col_strength_score,
+            col_edge,
+            col_edge_risk,
+            col_action,
+            col_pos,
+            col_net_edge,
+            col_trend,
+            col_risk,
+            "confidence_score",
+        ]
+        show_cols = [c for c in show_cols if c in d.columns]
+        d_view = d[show_cols].rename(
+            columns={
+                "p_up": _t("上涨概率", "P(up)"),
+                "p_down": _t("下跌概率", "P(down)"),
+                "q50_change_pct": _t("预期涨跌幅(q50)", "Expected Change (q50)"),
+                "target_price_q10": _t("目标价格(q10)", "Target Price (q10)"),
+                "target_price_q50": _t("目标价格(q50)", "Target Price (q50)"),
+                "target_price_q90": _t("目标价格(q90)", "Target Price (q90)"),
+                "start_window_top1": "start_window_top1",
+                "confidence_score": _t("置信度", "Confidence"),
+                col_pos: col_pos,
+                col_net_edge: col_net_edge,
+            }
+        )
+        st.caption(_t("关键列已置前（date_bj/day_of_week）并将趋势/风险/置信度放在表尾，便于快速扫读。", "Key columns moved forward (date_bj/day_of_week); trend/risk/confidence placed at end for quick scanning."))
+        format_map_all = {
+            _t("上涨概率", "P(up)"): "{:.2%}",
+            _t("下跌概率", "P(down)"): "{:.2%}",
+            _t("预期涨跌幅(q50)", "Expected Change (q50)"): "{:+.2%}",
+            _t("目标价格(q10)", "Target Price (q10)"): "${:,.2f}",
+            _t("目标价格(q50)", "Target Price (q50)"): "${:,.2f}",
+            _t("目标价格(q90)", "Target Price (q90)"): "${:,.2f}",
+            col_vol: "{:.2%}",
+            col_strength_score: "{:.0f}",
+            col_edge: "{:+.2%}",
+            col_edge_risk: "{:+.3f}",
+            col_pos: "{:.1%}",
+            col_net_edge: "{:+.2%}",
+            _t("置信度", "Confidence"): "{:.1f}",
+        }
+        format_map = {k: v for k, v in format_map_all.items() if k in d_view.columns}
+        styled = d_view.style.format(format_map, na_rep="-")
+        signed_cols = [c for c in [_t("预期涨跌幅(q50)", "Expected Change (q50)"), col_edge, col_edge_risk] if c in d_view.columns]
+        if signed_cols:
+            styled = styled.applymap(_style_signed_value, subset=signed_cols)
+        if col_strength in d_view.columns:
+            styled = styled.applymap(_style_strength_label, subset=[col_strength])
+        if col_vol in d_view.columns:
+            # pandas Styler.background_gradient depends on matplotlib.
+            # Degrade gracefully when matplotlib is not installed.
+            try:
+                import matplotlib  # noqa: F401
+
+                styled = styled.background_gradient(cmap="YlOrRd", subset=[col_vol])
+            except Exception:
+                pass
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    t1, t2, t3 = st.columns([1, 1, 1.2])
+    top_n = int(t1.slider(_t("榜单显示 Top N", "Top N rows"), 3, 12, 5, 1, key="session_topn"))
+    rank_key = t2.selectbox(
+        _t("榜单排序标准", "Ranking Metric"),
+        options=list(_rank_metric_options().keys()),
+        index=list(_rank_metric_options().keys()).index("edge_score"),
+        format_func=lambda k: _rank_metric_options().get(k, k),
+        key="session_rank_key",
+    )
+    cost_mode_labels = {
+        "双边(开+平)": _t("双边(开+平)", "Round-trip (open+close)"),
+        "单边": _t("单边", "One-way"),
+    }
+    cost_mode = t3.selectbox(
+        _t("成本口径", "Cost Type"),
+        options=["双边(开+平)", "单边"],
+        index=0,
+        key="session_cost_side",
+        format_func=lambda x: cost_mode_labels.get(str(x), str(x)),
+        help=_t("默认使用双边成本，更保守。", "Round-trip cost is default (more conservative)."),
+    )
+    c31, c32 = st.columns([1, 1])
+    one_way_cost_bps = float(
+        c31.number_input(
+            _t("单边成本（bps）", "One-way Cost (bps)"),
+            min_value=0.0,
+            max_value=100.0,
+            value=max(0.0, cost_bps_state / 2.0),
+            step=1.0,
+            key="session_cost_bps_oneway",
+        )
+    )
+    is_round_trip_mode = str(cost_mode).startswith("双边") or str(cost_mode).startswith("Round-trip")
+    cost_bps = one_way_cost_bps * (2.0 if is_round_trip_mode else 1.0)
+    c32.metric(_t("当前用于计算的成本", "Cost used in calculation"), f"{cost_bps:.1f} bps")
+    with st.expander(_t("ⓘ edge 公式说明", "ⓘ Edge Formula"), expanded=False):
+        st.markdown(
+            _t(
+                "- `edge_score = q50_change_pct - cost_bps/10000`\n"
+                "- `edge_risk = edge_score / (q90_change_pct - q10_change_pct)`\n"
+                "- 当前 `cost_bps` 口径："
+                + ("双边（开仓+平仓）" if is_round_trip_mode else "单边")
+                + "。",
+                "- `edge_score = q50_change_pct - cost_bps/10000`\n"
+                "- `edge_risk = edge_score / (q90_change_pct - q10_change_pct)`\n"
+                "- Current `cost_bps` mode: "
+                + ("Round-trip (open+close)" if is_round_trip_mode else "One-way")
+                + ".",
+            )
+        )
+
+    _render_top_tables(
+        hourly_df=hourly_df,
+        daily_df=daily_df,
+        top_n=top_n,
+        rank_key=rank_key,
+        cost_bps=cost_bps,
+        weak_pp=weak_pp,
+        strong_pp=strong_pp,
+        horizon_hours=horizon_hours,
+    )
+
+    with st.expander(_t("近期模型可信度（滚动30天）", "Recent Model Reliability (rolling 30d)"), expanded=False):
+        summary_30d, baseline_df, err_msg = _compute_recent_hourly_reliability(
+            symbol=str(symbol),
+            horizon_hours=int(horizon_hours),
+            window_days=30,
+            cfg=cfg,
+        )
+        if err_msg:
+            st.info(err_msg)
+        else:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Direction Accuracy", f"{summary_30d.get('accuracy', float('nan')):.2%}")
+            m2.metric("ROC-AUC", f"{summary_30d.get('auc', float('nan')):.3f}")
+            m3.metric("Brier", f"{summary_30d.get('brier', float('nan')):.4f}")
+            m4, m5, m6 = st.columns(3)
+            m4.metric(_t("Coverage(80%目标)", "Coverage (target 80%)"), f"{summary_30d.get('coverage', float('nan')):.2%}")
+            m5.metric(_t("平均区间宽度(q90-q10)", "Average interval width (q90-q10)"), f"{summary_30d.get('width', float('nan')):.2%}")
+            m6.metric(_t("样本数", "Samples"), f"{int(summary_30d.get('samples', 0))}")
+            st.caption(_t("说明：Coverage 目标通常接近 80%；Brier 越低越好。", "Coverage is usually expected near 80%; lower Brier is better."))
+            if not baseline_df.empty:
+                st.markdown(f"**{_t('Baseline 对比（含 Naive / Prev-bar / 已有模型汇总）', 'Baseline Comparison (Naive / Prev-bar / model summary)')}**")
+                st.dataframe(
+                    baseline_df.style.format(
+                        {
+                            "Accuracy": "{:.2%}",
+                            "AUC": "{:.3f}",
+                            "Brier": "{:.4f}",
+                        },
+                        na_rep="-",
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+    with st.expander(_t("如何解读这个页面？", "How to read this page?"), expanded=False):
+        st.markdown(
+            _t(
+                f"- 小时级语义：`从该小时开始的未来{int(horizon_hours)}h`，不是“该小时内必涨/必跌”。\n"
+                "- 看 `P(up)/P(down)` 判断方向概率。\n"
+                "- `信号强弱 = |P(up)-0.5|`：弱信号接近 coin flip，不要过度解读。\n"
+                "- 看 `预期涨跌幅(q50)` 判断幅度。\n"
+                "- 看 `波动强度` 和 `风险等级` 判断风险。\n"
+                "- 看 `edge_score / edge_risk` 判断机会值与风险调整后性价比。\n"
+                "- 看 `策略动作/建议仓位/预期净优势` 判断是否值得参与。\n"
+                "- `Forecast` 与 `Seasonality` 是两种口径，分歧本身也是信息。",
+                f"- Hourly semantics: future `{int(horizon_hours)}h` return from each hour start, not guaranteed up/down within that hour.\n"
+                "- Use `P(up)/P(down)` for direction probability.\n"
+                "- `Signal strength = |P(up)-0.5|`: weak signals are close to coin flip.\n"
+                "- Use `q50 change` for expected magnitude.\n"
+                "- Use `volatility` and `risk level` for risk.\n"
+                "- Use `edge_score / edge_risk` for risk-adjusted opportunity.\n"
+                "- Use `policy action / position size / expected net edge` for participation decision.\n"
+                "- `Forecast` and `Seasonality` are two views; divergence itself is informative.",
+            )
+        )
+
+===== _render_index_session_page (4535-5117) =====
+def _render_index_session_page() -> None:
+    st.header(_t("交易时间段预测（指数）", "Session Forecast (Indices)"))
+    st.caption(
+        _t(
+            "独立于 Crypto 的指数交易时段预测：支持上证指数、道琼斯、纳斯达克、标普500。",
+            "Index-only session forecast page (separate from Crypto): SSE, Dow Jones, NASDAQ, S&P 500.",
+        )
+    )
+
+    if "index_session_refresh_token" not in st.session_state:
+        st.session_state["index_session_refresh_token"] = 0
+
+    cfg = {}
+    try:
+        import yaml
+
+        cfg = yaml.safe_load(Path("configs/config.yaml").read_text(encoding="utf-8")) or {}
+    except Exception:
+        cfg = {}
+    fc = cfg.get("forecast_config", {})
+    strength_cfg = fc.get("signal_strength", {})
+    rank_cfg = fc.get("ranking", {})
+    default_horizon = int(fc.get("hourly", {}).get("horizon_hours", 4))
+    default_days = int(fc.get("daily", {}).get("lookforward_days", 14))
+    weak_pp = float(strength_cfg.get("weak_threshold_pp", 2.0))
+    strong_pp = float(strength_cfg.get("strong_threshold_pp", 5.0))
+    default_cost_bps = float(rank_cfg.get("cost_bps", 8.0))
+
+    index_keys = list(INDEX_SESSION_UNIVERSE.keys())
+    default_index_key = "sse" if "sse" in index_keys else (index_keys[0] if index_keys else "")
+
+    f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
+    index_key = f1.selectbox(
+        _t("指数", "Index"),
+        options=index_keys,
+        index=index_keys.index(default_index_key) if default_index_key in index_keys else 0,
+        format_func=_index_session_option_label,
+        key="index_session_key",
+    )
+    mode = f2.selectbox(
+        _t("模式", "Mode"),
+        options=["forecast", "seasonality"],
+        index=0,
+        key="index_session_mode",
+    )
+    horizon_options = [1, 2, 4, 6]
+    default_h_idx = horizon_options.index(default_horizon) if default_horizon in horizon_options else 2
+    horizon_hours = int(
+        f3.selectbox(
+            _t("小时周期", "Horizon (hour)"),
+            options=horizon_options,
+            index=default_h_idx,
+            key="index_session_horizon",
+        )
+    )
+    lookforward_days = int(
+        f4.slider(
+            _t("未来N天（日线）", "Next N Days (daily)"),
+            7,
+            30,
+            max(7, min(30, default_days)),
+            1,
+            key="index_session_daily_n",
+        )
+    )
+
+    c1, c2, c3 = st.columns([1, 2, 1.2])
+    compare_view = bool(
+        c1.checkbox(
+            _t("对照视图", "Compare View"),
+            value=False,
+            key="index_session_compare_view",
+            help=_t("对照 Forecast 与 Seasonality。", "Compare Forecast vs Seasonality."),
+        )
+    )
+    view_mode = c3.selectbox(
+        _t("视图模式", "View Mode"),
+        options=[_t("专业模式", "Pro"), _t("新手模式", "Beginner")],
+        index=0,
+        key="index_session_view_mode",
+    )
+    is_pro_mode = str(view_mode) == _t("专业模式", "Pro")
+    risk_profile = c3.selectbox(
+        _t("风险偏好", "Risk Profile"),
+        options=[_t("标准", "Standard"), _t("保守", "Conservative"), _t("激进", "Aggressive")],
+        index=0,
+        key="index_session_risk_profile",
+    )
+    if c2.button(_t("刷新并重算", "Refresh and Recompute"), key="index_session_refresh_btn"):
+        st.session_state["index_session_refresh_token"] += 1
+
+    try:
+        hourly_df, blocks_df, daily_df, meta = _build_index_session_bundle_cached(
+            index_key=str(index_key),
+            mode=mode,
+            horizon_hours=int(horizon_hours),
+            lookforward_days=int(lookforward_days),
+            refresh_token=int(st.session_state["index_session_refresh_token"]),
+        )
+    except Exception as exc:
+        st.error(_t(f"指数时段预测计算失败：{exc}", f"Index session forecast failed: {exc}"))
+        return
+
+    mode_actual = str(meta.get("mode_actual", mode))
+    if mode_actual != mode:
+        st.warning(
+            _t(
+                f"请求模式是 `{mode}`，当前自动降级为 `{mode_actual}`。",
+                f"Requested mode `{mode}` downgraded to `{mode_actual}`.",
+            )
+        )
+
+    inst = INDEX_SESSION_UNIVERSE.get(str(index_key), {})
+    index_name = _t(str(inst.get("name_zh", "-")), str(inst.get("name_en", "-")))
+    active_session = str(meta.get("active_session", _index_active_session(str(index_key))))
+    active_session_label = _session_display_name(active_session)
+    st.caption(
+        _t(
+            f"指数：{index_name} | 最新价格：{_format_price(meta.get('current_price'))} | "
+            f"{_ui_timezone_label()}更新时间：{_fmt_ts_for_ui(meta.get('data_updated_at_bj', '-'))} | 模式/周期：{mode_actual} / {int(horizon_hours)}h | 有效交易时段：{active_session_label}",
+            f"Index: {index_name} | Latest Price: {_format_price(meta.get('current_price'))} | "
+            f"Updated ({_ui_timezone_label()}): {_fmt_ts_for_ui(meta.get('data_updated_at_bj', '-'))} | Mode/Horizon: {mode_actual} / {int(horizon_hours)}h | Active session: {active_session_label}",
+        )
+    )
+
+    data_version_seed = (
+        f"{meta.get('index_key', '-')}"
+        f"|{meta.get('symbol', '-')}"
+        f"|{meta.get('data_updated_at_bj', '-')}"
+        f"|{meta.get('data_source_actual', '-')}"
+    )
+    data_version = hashlib.sha1(data_version_seed.encode("utf-8")).hexdigest()[:12]
+    with st.expander(_t("数据 & 模型信息", "Data & Model Info"), expanded=False):
+        st.markdown(
+            _t(
+                f"- 指数：{index_name} / {meta.get('symbol', '-')}\n"
+                f"- 数据源：{meta.get('exchange_actual', '-')}\n"
+                f"- 数据更新时间（北京时间）：{meta.get('data_updated_at_bj', '-')}\n"
+                f"- 预测生成时间（北京时间）：{meta.get('forecast_generated_at_bj', '-')}\n"
+                f"- horizon={int(horizon_hours)}h / mode={mode_actual}\n"
+                f"- 有效交易时段：{active_session_label}\n"
+                f"- model_version：{meta.get('model_version', '-')}\n"
+                f"- data_version：{data_version}\n"
+                f"- git_hash：{_get_git_hash_short_cached()}",
+                f"- Index: {index_name} / {meta.get('symbol', '-')}\n"
+                f"- Source: {meta.get('exchange_actual', '-')}\n"
+                f"- Data updated (Asia/Shanghai): {meta.get('data_updated_at_bj', '-')}\n"
+                f"- Forecast generated (Asia/Shanghai): {meta.get('forecast_generated_at_bj', '-')}\n"
+                f"- horizon={int(horizon_hours)}h / mode={mode_actual}\n"
+                f"- Active session: {active_session_label}\n"
+                f"- model_version: {meta.get('model_version', '-')}\n"
+                f"- data_version: {data_version}\n"
+                f"- git_hash: {_get_git_hash_short_cached()}",
+            )
+        )
+        st.caption(f"Data Source Detail: {meta.get('data_source_actual', '-')}")
+    skip_rows = meta.get("skipped_non_trading_days", [])
+    with st.expander(_t("休市跳过说明（日线）", "Skipped Non-trading Days (Daily)"), expanded=False):
+        if isinstance(skip_rows, list) and len(skip_rows) > 0:
+            skip_df = pd.DataFrame(skip_rows)
+            show = pd.DataFrame()
+            show[_t("北京时间日期", "Beijing Date")] = skip_df.get("date_bj", pd.Series(dtype=str)).astype(str)
+            show[_t("原因", "Reason")] = np.where(
+                _ui_lang() == "zh",
+                skip_df.get("reason_zh", pd.Series(dtype=str)).astype(str),
+                skip_df.get("reason_en", pd.Series(dtype=str)).astype(str),
+            )
+            show[_t("类型", "Type")] = skip_df.get("reason_code", pd.Series(dtype=str)).astype(str)
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.caption(
+                _t(
+                    f"已在日线预测/日线模拟中自动跳过 {len(skip_df)} 天非交易日（周末+法定休市）。",
+                    f"Skipped {len(skip_df)} non-trading days (weekends + official holidays) in daily forecast/simulation.",
+                )
+            )
+        else:
+            st.caption(_t("当前窗口内无需要额外跳过的非交易日。", "No extra non-trading days in current window."))
+
+    policy_cfg = (cfg.get("policy", {}) if isinstance(cfg, dict) else {})
+    th_cfg = policy_cfg.get("thresholds", {})
+    ex_cfg = policy_cfg.get("execution", {})
+    decision_cfg = (cfg.get("decision", {}) if isinstance(cfg, dict) else {})
+    p_bull = float(th_cfg.get("p_bull", 0.55))
+    p_bear = float(th_cfg.get("p_bear", 0.45))
+    conf_min = float(decision_cfg.get("confidence_min", 60.0))
+    cost_bps_plan = float(ex_cfg.get("fee_bps", 10.0)) + float(ex_cfg.get("slippage_bps", 10.0))
+    threshold_text = _t(
+        f"阈值 p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+        f"Thresholds p_bull={p_bull:.2f}, p_bear={p_bear:.2f}, conf>={conf_min:.0f}, cost={cost_bps_plan:.1f}bps",
+    )
+
+    compare_mode = "seasonality" if mode == "forecast" else "forecast"
+    cmp_blocks = pd.DataFrame()
+    cmp_meta: Dict[str, object] = {}
+    try:
+        _, cmp_blocks, _, cmp_meta = _build_index_session_bundle_cached(
+            index_key=str(index_key),
+            mode=compare_mode,
+            horizon_hours=int(horizon_hours),
+            lookforward_days=int(lookforward_days),
+            refresh_token=int(st.session_state["index_session_refresh_token"]),
+        )
+    except Exception:
+        cmp_blocks = pd.DataFrame()
+        cmp_meta = {}
+
+    market_for_index = str(inst.get("market", "us_equity"))
+    rel_summary, _, rel_msg = _compute_recent_symbol_reliability_cached(
+        market=market_for_index,
+        symbol=str(meta.get("symbol", "-")),
+        provider="yahoo",
+        fallback_symbol="",
+        horizon_steps=1,
+        window_days=30,
+    )
+    model_health_level = _model_health_grade(rel_summary)
+    model_health_text = _t("模型健康", "Model Health") + f": {_model_health_text(model_health_level)}"
+    if rel_summary:
+        model_health_text = _t(
+            f"{_model_health_text(model_health_level)}（Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')}）",
+            f"{_model_health_text(model_health_level)} (Brier {_format_float(rel_summary.get('brier'), 3)}, Coverage {_format_change_pct(rel_summary.get('coverage')).replace('+','')})",
+        )
+
+    plan_row, trade_plan = _prepare_session_trade_plan(
+        hourly_df=hourly_df,
+        blocks_df=blocks_df,
+        meta={**meta, "market": market_for_index},
+        horizon_hours=int(horizon_hours),
+        market_mode="index",
+        active_session=active_session,
+        cfg=cfg,
+        model_health=model_health_level,
+        risk_profile=str(risk_profile),
+    )
+    consensus = _session_consensus(main_row=plan_row, compare_blocks=cmp_blocks)
+    if trade_plan:
+        _render_session_sticky_decision_card(
+            plan=trade_plan,
+            consensus=consensus,
+            model_health_text=model_health_text,
+            data_updated_bj=str(meta.get("data_updated_at_bj", "-")),
+            model_version=str(meta.get("model_version", "-")),
+            threshold_text=threshold_text,
+        )
+        _render_session_trade_plan_block(
+            plan=trade_plan,
+            p_bull=p_bull,
+            p_bear=p_bear,
+            conf_min=conf_min,
+        )
+    if rel_msg and is_pro_mode:
+        st.caption(rel_msg)
+
+    if blocks_df.empty:
+        st.info(_t("暂无时段汇总数据。", "No session summary data available."))
+    else:
+        cards = _append_signal_strength_columns(blocks_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
+        # Always use language-aware session display name for UI.
+        cards["session_name_cn"] = cards["session_name"].map(_session_display_name)
+        cards = cards.sort_values(
+            "session_name", key=lambda s: s.map({"asia": 0, "europe": 1, "us": 2}).fillna(9)
+        )
+        cols = st.columns(3)
+        for idx, (_, row) in enumerate(cards.iterrows()):
+            col = cols[idx % 3]
+            with col:
+                st.markdown(f"**{row.get('session_name_cn', '-') }（{row.get('session_hours', '-') }）**")
+                st.metric(_t("上涨概率", "P(up)"), _format_change_pct(row.get("p_up")).replace("+", ""))
+                st.metric(_t("下跌概率", "P(down)"), _format_change_pct(row.get("p_down")).replace("+", ""))
+                st.metric(_t("预期涨跌幅(q50)", "Expected Change (q50)"), _format_change_pct(row.get("q50_change_pct")))
+                st.metric(_t("目标价格(q50)", "Target Price (q50)"), _format_price(row.get("target_price_q50")))
+                _render_signal_badge(row.get("signal_strength_label", "-"))
+                st.caption(
+                    _t("信号强弱：", "Signal strength: ")
+                    + _format_signal_strength(
+                        row.get("signal_strength_label", "-"),
+                        row.get("signal_strength_pp"),
+                        row.get("signal_strength_score"),
+                    )
+                )
+                st.caption(
+                    _t(
+                        f"趋势：{_trend_text(str(row.get('trend_label', '-')))} | "
+                        f"风险：{_risk_text(str(row.get('risk_level', '-')))} | "
+                        f"置信度：{_format_float(row.get('confidence_score'), 1)}",
+                        f"Trend: {_trend_text(str(row.get('trend_label', '-')))} | "
+                        f"Risk: {_risk_text(str(row.get('risk_level', '-')))} | "
+                        f"Confidence: {_format_float(row.get('confidence_score'), 1)}",
+                    )
+                )
+                if "policy_action" in row.index:
+                    st.caption(
+                        _t(
+                            f"策略：{_policy_action_text(str(row.get('policy_action', 'Flat')))} | "
+                            f"仓位：{(float(row.get('policy_position_size')) if _is_finite_number(row.get('policy_position_size')) else 0.0):.1%} | "
+                            f"净优势：{_format_change_pct(row.get('policy_expected_edge_pct'))}",
+                            f"Action: {_policy_action_text(str(row.get('policy_action', 'Flat')))} | "
+                            f"Size: {(float(row.get('policy_position_size')) if _is_finite_number(row.get('policy_position_size')) else 0.0):.1%} | "
+                            f"Net edge: {_format_change_pct(row.get('policy_expected_edge_pct'))}",
+                        )
+                    )
+
+    st.caption(
+        _t(
+            f"信号解释：`弱信号` (<{weak_pp:.1f}pp) 接近抛硬币，谨慎解读；"
+            f"`中信号` ({weak_pp:.1f}-{strong_pp:.1f}pp)；`强信号` (>{strong_pp:.1f}pp)。",
+            f"Signal guide: `Weak` (<{weak_pp:.1f}pp) is close to coin flip; "
+            f"`Medium` ({weak_pp:.1f}-{strong_pp:.1f}pp); `Strong` (>{strong_pp:.1f}pp).",
+        )
+    )
+    st.caption(
+        _t(
+            f"指数时段口径：当前仅对 `{active_session_label}` 输出可交易时段信号，其他时段展示为空白。",
+            f"Index session scope: only `{active_session_label}` is tradable for this index; other sessions are shown as blank.",
+        )
+    )
+
+    if compare_view and is_pro_mode:
+        try:
+            st.markdown(f"### {_t('Forecast vs Seasonality 对照（同参数）', 'Forecast vs Seasonality (same params)')}")
+            st.caption(
+                _t(
+                    f"当前模式：{mode_actual} | 对照模式：{cmp_meta.get('mode_actual', compare_mode)} | "
+                    "重点看 Δp_up（Forecast - Seasonality）。",
+                    f"Current mode: {mode_actual} | Compare mode: {cmp_meta.get('mode_actual', compare_mode)} | "
+                    "Focus on Δp_up (Forecast - Seasonality).",
+                )
+            )
+            if not blocks_df.empty and not cmp_blocks.empty:
+                left = blocks_df[["session_name", "session_name_cn", "p_up", "q50_change_pct"]].copy()
+                right = cmp_blocks[["session_name", "p_up", "q50_change_pct"]].copy()
+                merged = left.merge(right, on="session_name", how="inner", suffixes=("_main", "_cmp"))
+                merged["Δp_up"] = merged["p_up_main"] - merged["p_up_cmp"]
+                merged["Δq50"] = merged["q50_change_pct_main"] - merged["q50_change_pct_cmp"]
+                show = merged.rename(
+                    columns={
+                        "session_name_cn": _t("时段", "Session"),
+                        "p_up_main": f"{mode_actual} p_up",
+                        "p_up_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
+                        "q50_change_pct_main": f"{mode_actual} q50",
+                        "q50_change_pct_cmp": f"{cmp_meta.get('mode_actual', compare_mode)} q50",
+                    }
+                )
+                fmt = {
+                    c: "{:.2%}"
+                    for c in [
+                        f"{mode_actual} p_up",
+                        f"{cmp_meta.get('mode_actual', compare_mode)} p_up",
+                        f"{mode_actual} q50",
+                        f"{cmp_meta.get('mode_actual', compare_mode)} q50",
+                        "Δp_up",
+                        "Δq50",
+                    ]
+                    if c in show.columns
+                }
+                styled_cmp = show.style.format(fmt, na_rep="-")
+                delta_cols = [c for c in ["Δp_up", "Δq50"] if c in show.columns]
+                if delta_cols:
+                    styled_cmp = styled_cmp.applymap(_style_signed_value, subset=delta_cols)
+                st.dataframe(styled_cmp, use_container_width=True, hide_index=True)
+            else:
+                st.info(_t("对照视图数据不足。", "Insufficient data for compare view."))
+        except Exception as exc:
+            st.warning(_t(f"对照视图构建失败：{exc}", f"Failed to build compare view: {exc}"))
+
+    st.markdown("---")
+    tab_up = _t("上涨概率", "P(up)")
+    tab_down = _t("下跌概率", "P(down)")
+    tab_vol = _t("波动强度", "Volatility")
+    tab_conf = _t("置信度", "Confidence")
+    tab1, tab2, tab3, tab4 = st.tabs([tab_up, tab_down, tab_vol, tab_conf])
+    with tab1:
+        _render_hourly_heatmap(hourly_df, "p_up", tab_up, horizon_hours=horizon_hours)
+    with tab2:
+        _render_hourly_heatmap(hourly_df, "p_down", tab_down, horizon_hours=horizon_hours)
+    with tab3:
+        _render_hourly_heatmap(hourly_df, "volatility_score", tab_vol, horizon_hours=horizon_hours)
+    with tab4:
+        _render_hourly_heatmap(hourly_df, "confidence_score", tab_conf, horizon_hours=horizon_hours)
+
+    _render_simulated_kline_panel(
+        panel_key="index_session",
+        step_profile=hourly_df,
+        daily_profile=daily_df,
+        current_price=_safe_float(meta.get("current_price")),
+        market_mode="index",
+        symbol_or_index=f"{index_name} ({meta.get('symbol', '-')})",
+        reference_ts_bj=str(meta.get("forecast_generated_at_bj", meta.get("data_updated_at_bj", ""))),
+        active_session=str(meta.get("active_session", active_session)),
+        trade_plan=trade_plan,
+    )
+
+    if not is_pro_mode:
+        st.info(_t("当前为新手模式：已保留决策卡与关键图表。切换到专业模式可查看完整日线表、TopN、可靠性面板。", "Beginner mode: key decision and charts are shown. Switch to Pro mode for full daily table, TopN, and reliability panel."))
+        return
+
+    st.markdown("---")
+    st.subheader(_t("未来N天日线预测", "Next N-day Daily Forecast"))
+    oneway_state = float(st.session_state.get("index_session_cost_bps_oneway", max(0.0, default_cost_bps / 2.0)))
+    default_side = _t("双边(开+平)", "Round-trip (open+close)")
+    cost_side_state = str(st.session_state.get("index_session_cost_side", default_side))
+    is_round_trip = cost_side_state.startswith("双边") or cost_side_state.startswith("Round-trip")
+    cost_bps_state = oneway_state * (2.0 if is_round_trip else 1.0)
+    if daily_df.empty:
+        st.info(_t("暂无日线预测数据。", "No daily forecast data."))
+    else:
+        d = _append_signal_strength_columns(daily_df.copy(), weak_pp=weak_pp, strong_pp=strong_pp)
+        d = _append_edge_columns(d, cost_bps=cost_bps_state)
+        col_trend = _t("趋势", "Trend")
+        col_risk = _t("风险", "Risk")
+        col_strength = _t("信号强弱", "Signal Strength")
+        col_strength_score = _t("强度分(0-100)", "Strength(0-100)")
+        col_edge = _t("机会值(edge)", "Edge")
+        col_edge_risk = _t("风险调整机会", "Edge/Risk")
+        col_vol = _t("波动强度", "Volatility")
+        col_action = _t("策略动作", "Policy Action")
+        col_pos = _t("建议仓位", "Position Size")
+        col_net_edge = _t("预期净优势", "Expected Net Edge")
+        d[col_trend] = d["trend_label"].map(_trend_text)
+        d[col_risk] = d["risk_level"].map(_risk_text)
+        d[col_strength] = d["signal_strength_label"].map(_signal_strength_text)
+        d[col_strength_score] = d["signal_strength_score"]
+        d[col_edge] = d["edge_score"]
+        d[col_edge_risk] = d["edge_risk"]
+        d[col_vol] = pd.to_numeric(d.get("volatility_score"), errors="coerce")
+        if "policy_action" in d.columns:
+            d[col_action] = d["policy_action"].map(_policy_action_text)
+            d[col_pos] = d["policy_position_size"]
+            d[col_net_edge] = pd.to_numeric(d["policy_expected_edge_pct"], errors="coerce")
+
+        show_cols = [
+            "date_bj",
+            "day_of_week",
+            "p_up",
+            "p_down",
+            "q50_change_pct",
+            "target_price_q10",
+            "target_price_q50",
+            "target_price_q90",
+            "start_window_top1",
+            col_vol,
+            col_strength,
+            col_strength_score,
+            col_edge,
+            col_edge_risk,
+            col_action,
+            col_pos,
+            col_net_edge,
+            col_trend,
+            col_risk,
+            "confidence_score",
+        ]
+        show_cols = [c for c in show_cols if c in d.columns]
+        d_view = d[show_cols].rename(
+            columns={
+                "p_up": _t("上涨概率", "P(up)"),
+                "p_down": _t("下跌概率", "P(down)"),
+                "q50_change_pct": _t("预期涨跌幅(q50)", "Expected Change (q50)"),
+                "target_price_q10": _t("目标价格(q10)", "Target Price (q10)"),
+                "target_price_q50": _t("目标价格(q50)", "Target Price (q50)"),
+                "target_price_q90": _t("目标价格(q90)", "Target Price (q90)"),
+                "start_window_top1": "start_window_top1",
+                "confidence_score": _t("置信度", "Confidence"),
+                col_pos: col_pos,
+                col_net_edge: col_net_edge,
+            }
+        )
+        format_map_all = {
+            _t("上涨概率", "P(up)"): "{:.2%}",
+            _t("下跌概率", "P(down)"): "{:.2%}",
+            _t("预期涨跌幅(q50)", "Expected Change (q50)"): "{:+.2%}",
+            _t("目标价格(q10)", "Target Price (q10)"): "${:,.2f}",
+            _t("目标价格(q50)", "Target Price (q50)"): "${:,.2f}",
+            _t("目标价格(q90)", "Target Price (q90)"): "${:,.2f}",
+            col_vol: "{:.2%}",
+            col_strength_score: "{:.0f}",
+            col_edge: "{:+.2%}",
+            col_edge_risk: "{:+.3f}",
+            col_pos: "{:.1%}",
+            col_net_edge: "{:+.2%}",
+            _t("置信度", "Confidence"): "{:.1f}",
+        }
+        format_map = {k: v for k, v in format_map_all.items() if k in d_view.columns}
+        styled = d_view.style.format(format_map, na_rep="-")
+        signed_cols = [c for c in [_t("预期涨跌幅(q50)", "Expected Change (q50)"), col_edge, col_edge_risk] if c in d_view.columns]
+        if signed_cols:
+            styled = styled.applymap(_style_signed_value, subset=signed_cols)
+        if col_strength in d_view.columns:
+            styled = styled.applymap(_style_strength_label, subset=[col_strength])
+        if col_vol in d_view.columns:
+            try:
+                import matplotlib  # noqa: F401
+
+                styled = styled.background_gradient(cmap="YlOrRd", subset=[col_vol])
+            except Exception:
+                pass
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    t1, t2, t3 = st.columns([1, 1, 1.2])
+    top_n = int(t1.slider(_t("榜单显示 Top N", "Top N rows"), 3, 12, 5, 1, key="index_session_topn"))
+    rank_key = t2.selectbox(
+        _t("榜单排序标准", "Ranking Metric"),
+        options=list(_rank_metric_options().keys()),
+        index=list(_rank_metric_options().keys()).index("edge_score"),
+        format_func=lambda k: _rank_metric_options().get(k, k),
+        key="index_session_rank_key",
+    )
+    cost_mode_labels = {
+        "双边(开+平)": _t("双边(开+平)", "Round-trip (open+close)"),
+        "单边": _t("单边", "One-way"),
+    }
+    cost_mode = t3.selectbox(
+        _t("成本口径", "Cost Type"),
+        options=["双边(开+平)", "单边"],
+        index=0,
+        key="index_session_cost_side",
+        format_func=lambda x: cost_mode_labels.get(str(x), str(x)),
+        help=_t("默认使用双边成本，更保守。", "Round-trip cost is default (more conservative)."),
+    )
+    c31, c32 = st.columns([1, 1])
+    one_way_cost_bps = float(
+        c31.number_input(
+            _t("单边成本（bps）", "One-way Cost (bps)"),
+            min_value=0.0,
+            max_value=100.0,
+            value=max(0.0, cost_bps_state / 2.0),
+            step=1.0,
+            key="index_session_cost_bps_oneway",
+        )
+    )
+    is_round_trip_mode = str(cost_mode).startswith("双边") or str(cost_mode).startswith("Round-trip")
+    cost_bps = one_way_cost_bps * (2.0 if is_round_trip_mode else 1.0)
+    c32.metric(_t("当前用于计算的成本", "Cost used in calculation"), f"{cost_bps:.1f} bps")
+    with st.expander(_t("ⓘ edge 公式说明", "ⓘ Edge Formula"), expanded=False):
+        st.markdown(
+            _t(
+                "- `edge_score = q50_change_pct - cost_bps/10000`\n"
+                "- `edge_risk = edge_score / (q90_change_pct - q10_change_pct)`\n"
+                "- 当前 `cost_bps` 口径："
+                + ("双边（开仓+平仓）" if is_round_trip_mode else "单边")
+                + "。",
+                "- `edge_score = q50_change_pct - cost_bps/10000`\n"
+                "- `edge_risk = edge_score / (q90_change_pct - q10_change_pct)`\n"
+                "- Current `cost_bps` mode: "
+                + ("Round-trip (open+close)" if is_round_trip_mode else "One-way")
+                + ".",
+            )
+        )
+
+    hourly_for_rank = hourly_df.copy()
+    if "is_trading_hour" in hourly_for_rank.columns:
+        hourly_for_rank = hourly_for_rank[hourly_for_rank["is_trading_hour"] == 1].copy()
+    _render_top_tables(
+        hourly_df=hourly_for_rank,
+        daily_df=daily_df,
+        top_n=top_n,
+        rank_key=rank_key,
+        cost_bps=cost_bps,
+        weak_pp=weak_pp,
+        strong_pp=strong_pp,
+        horizon_hours=horizon_hours,
+    )
+
+    with st.expander(_t("如何解读这个页面？", "How to read this page?"), expanded=False):
+        st.markdown(
+            _t(
+                f"- 小时级语义：`从该小时开始的未来{int(horizon_hours)}h`，不是“该小时内必涨/必跌”。\n"
+                "- 看 `P(up)/P(down)` 判断方向概率。\n"
+                "- `信号强弱 = |P(up)-0.5|`：弱信号接近 coin flip，不要过度解读。\n"
+                "- 看 `预期涨跌幅(q50)` 判断幅度。\n"
+                "- 看 `波动强度` 和 `风险等级` 判断风险。\n"
+                "- 看 `edge_score / edge_risk` 判断机会值与风险调整后性价比。\n"
+                "- `Forecast` 与 `Seasonality` 是两种口径，分歧本身也是信息。",
+                f"- Hourly semantics: future `{int(horizon_hours)}h` return from each hour start, not guaranteed up/down within that hour.\n"
+                "- Use `P(up)/P(down)` for direction probability.\n"
+                "- `Signal strength = |P(up)-0.5|`: weak signals are close to coin flip.\n"
+                "- Use `q50 change` for expected magnitude.\n"
+                "- Use `volatility` and `risk level` for risk.\n"
+                "- Use `edge_score / edge_risk` for risk-adjusted opportunity.\n"
+                "- `Forecast` and `Seasonality` are two views; divergence itself is informative.",
+            )
+        )
+
+===== _build_trade_decision_plan (5857-6500) =====
+def _build_trade_decision_plan(
+    row: pd.Series,
+    *,
+    cfg: Dict[str, object] | None = None,
+    risk_profile: str = "标准",
+    model_health: str = "中",
+    event_risk: bool = False,
+    persist_touch: bool = True,
+    processed_dir: Path | None = None,
+) -> Dict[str, object]:
+    cfg_local = cfg or _load_main_config_cached("configs/config.yaml")
+    policy_cfg = (cfg_local.get("policy", {}) if isinstance(cfg_local, dict) else {})
+    th_cfg = policy_cfg.get("thresholds", {})
+    ex_cfg = policy_cfg.get("execution", {})
+    decision_cfg = (cfg_local.get("decision", {}) if isinstance(cfg_local, dict) else {})
+    consistency_cfg = (
+        decision_cfg.get("consistency", {}) if isinstance(decision_cfg, dict) else {}
+    )
+    p_bull = float(th_cfg.get("p_bull", 0.55))
+    p_bear = float(th_cfg.get("p_bear", 0.45))
+    conf_min = float(decision_cfg.get("confidence_min", 60.0))
+    consistency_enabled = bool(consistency_cfg.get("enabled", True))
+    ewma_span = int(_safe_float(consistency_cfg.get("ewma_span_bars", 4)))
+    if ewma_span < 1:
+        ewma_span = 1
+    ewma_alpha = float(np.clip(2.0 / (ewma_span + 1.0), 0.01, 1.0))
+    delta_p_threshold = float(max(0.0, _safe_float(consistency_cfg.get("delta_p_threshold", 0.05))))
+    delta_edge_bps_threshold = float(max(0.0, _safe_float(consistency_cfg.get("delta_edge_bps_threshold", 4.0))))
+    cooldown_bars = int(max(0.0, _safe_float(consistency_cfg.get("cooldown_bars", 1))))
+    min_hold_bars = int(max(0.0, _safe_float(consistency_cfg.get("min_hold_bars", 1))))
+    hysteresis_cfg = (
+        consistency_cfg.get("hysteresis", {}) if isinstance(consistency_cfg, dict) else {}
+    )
+    p_bull_exit = _safe_float(hysteresis_cfg.get("p_bull_exit", p_bull - 0.04))
+    p_bear_exit = _safe_float(hysteresis_cfg.get("p_bear_exit", p_bear + 0.04))
+    if not np.isfinite(p_bull_exit):
+        p_bull_exit = p_bull - 0.04
+    if not np.isfinite(p_bear_exit):
+        p_bear_exit = p_bear + 0.04
+    p_bull_exit = float(np.clip(min(p_bull_exit, p_bull), 0.0, 1.0))
+    p_bear_exit = float(np.clip(max(p_bear_exit, p_bear), 0.0, 1.0))
+    fee_bps = float(ex_cfg.get("fee_bps", 10.0))
+    slippage_bps = float(ex_cfg.get("slippage_bps", 10.0))
+    cost_bps = fee_bps + slippage_bps  # 双边成本：开+平
+    cost_pct = cost_bps / 10000.0
+
+    current_price = _safe_float(row.get("current_price"))
+    p_up = _safe_float(row.get("p_up", row.get("policy_p_up_used")))
+    q10 = _safe_float(row.get("q10_change_pct"))
+    q50 = _safe_float(row.get("q50_change_pct", row.get("predicted_change_pct")))
+    q90 = _safe_float(row.get("q90_change_pct"))
+    conf = _safe_float(row.get("confidence_score"))
+    risk_level = str(row.get("risk_level", "medium"))
+    news_risk_level_row = str(row.get("news_risk_level", "low")).strip().lower()
+    allow_short = bool(row.get("policy_allow_short", True))
+    horizon_label = str(row.get("horizon_label", "4h"))
+    market = str(row.get("market", "")).strip().lower()
+    symbol = str(row.get("symbol", row.get("snapshot_symbol", ""))).strip()
+    price_source = str(row.get("price_source", "-"))
+    price_timestamp_market = str(
+        row.get(
+            "price_timestamp_market",
+            row.get("timestamp_market", row.get("latest_market", row.get("generated_at_market", "-"))),
+        )
+    )
+    price_timestamp_utc = str(
+        row.get(
+            "price_timestamp_utc",
+            row.get("timestamp_utc", row.get("latest_utc", row.get("generated_at_utc", "-"))),
+        )
+    )
+    now_utc = pd.Timestamp.now(tz="UTC")
+    source_signal_time = str(row.get("generated_at_utc", row.get("timestamp_utc", price_timestamp_utc)))
+    source_valid_until = str(row.get("expected_date_market", row.get("expected_date_utc", "-")))
+    horizon_td = _horizon_to_timedelta(horizon_label)
+
+    sig_ts = pd.to_datetime(source_signal_time, utc=True, errors="coerce")
+    stale_limit = max(pd.Timedelta(hours=24), horizon_td * 2)
+    if pd.isna(sig_ts) or (now_utc - sig_ts) > stale_limit:
+        sig_ts = now_utc
+    signal_time_utc = sig_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    vu_ts = pd.to_datetime(source_valid_until, utc=True, errors="coerce")
+    if pd.isna(vu_ts):
+        vu_ts = sig_ts + horizon_td
+    elif vu_ts <= now_utc:
+        # If upstream validity is already expired, regenerate a fresh signal window from now.
+        sig_ts = now_utc
+        signal_time_utc = sig_ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+        vu_ts = sig_ts + horizon_td
+    tz_name_valid = str(row.get("timezone", "Asia/Shanghai")) or "Asia/Shanghai"
+    try:
+        valid_until = vu_ts.tz_convert(tz_name_valid).strftime("%Y-%m-%d %H:%M:%S %z")
+    except Exception:
+        valid_until = vu_ts.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+    entry_candidates = [
+        _safe_float(row.get("signal_entry_price")),
+        _safe_float(row.get("entry_price_snapshot")),
+        _safe_float(row.get("plan_entry")),
+        _safe_float(row.get("entry")),
+        current_price,
+    ]
+    entry_seed = next((x for x in entry_candidates if np.isfinite(x)), float("nan"))
+    entry_band_cfg = ((cfg_local.get("decision", {}) if isinstance(cfg_local, dict) else {}).get("entry_band_pct", {}))
+    entry_band_pct = float("nan")
+    if isinstance(entry_band_cfg, dict):
+        entry_band_pct = _safe_float(entry_band_cfg.get(market, entry_band_cfg.get("default")))
+    elif _is_finite_number(entry_band_cfg):
+        entry_band_pct = float(entry_band_cfg)
+    if not np.isfinite(entry_band_pct) or entry_band_pct <= 0:
+        entry_band_pct = _default_entry_band_pct(market)
+    entry_band_pct = float(np.clip(entry_band_pct, 0.0002, 0.02))
+    key_raw = "|".join(
+        [
+            market or "-",
+            symbol or "-",
+            horizon_label or "-",
+            valid_until or "-",
+            f"{_safe_float(q50):.6f}",
+            f"{_safe_float(p_up):.6f}",
+            str(risk_profile),
+        ]
+    )
+    signal_key = hashlib.sha1(key_raw.encode("utf-8")).hexdigest()[:20]
+    consistency_key = "|".join([market or "-", symbol or "-", horizon_label or "-"])
+    consistency_state = _load_consistency_state(processed_dir) if (consistency_enabled and persist_touch) else {}
+    consistency_prev = consistency_state.get(consistency_key, {}) if isinstance(consistency_state, dict) else {}
+    prev_action = str(consistency_prev.get("last_action", "WAIT")).upper()
+    if prev_action not in {"LONG", "SHORT", "WAIT"}:
+        prev_action = "WAIT"
+    prev_trade_status = str(consistency_prev.get("last_trade_status", "WAIT_RULES")).upper()
+    prev_signal_key = str(consistency_prev.get("last_signal_key", "")).strip()
+    prev_price_ts_utc = str(consistency_prev.get("last_price_timestamp_utc", "")).strip()
+    prev_news_risk_level = str(consistency_prev.get("last_news_risk_level", "")).strip().lower()
+    prev_p_raw = _safe_float(consistency_prev.get("last_p_up_raw"))
+    prev_p_ewma = _safe_float(consistency_prev.get("p_up_ewma"))
+
+    p_up_raw = p_up
+    if np.isfinite(p_up_raw):
+        if np.isfinite(prev_p_ewma):
+            p_up_smooth = float(ewma_alpha * p_up_raw + (1.0 - ewma_alpha) * prev_p_ewma)
+        else:
+            p_up_smooth = float(p_up_raw)
+    else:
+        p_up_smooth = float(prev_p_ewma) if np.isfinite(prev_p_ewma) else float("nan")
+    p_up_eval = p_up_smooth if np.isfinite(p_up_smooth) else p_up_raw
+
+    entry = entry_seed
+    entry_touched_at = ""
+    if persist_touch:
+        state = _load_entry_touch_state(processed_dir)
+        rec = state.get(signal_key, {})
+        rec_entry = _safe_float(rec.get("entry_price"))
+        if np.isfinite(rec_entry):
+            entry = rec_entry
+        entry_touched_at = str(rec.get("entry_touched_at", "")).strip()
+    else:
+        state = {}
+    entry_gap_pct = (
+        _safe_float((current_price - entry) / entry)
+        if np.isfinite(current_price) and np.isfinite(entry) and abs(entry) > 1e-12
+        else float("nan")
+    )
+    entry_touched = bool(np.isfinite(entry_gap_pct) and abs(entry_gap_pct) <= entry_band_pct)
+    if entry_touched and not entry_touched_at:
+        tz_name = str(row.get("timezone", "Asia/Shanghai")) or "Asia/Shanghai"
+        try:
+            entry_touched_at = pd.Timestamp.now(tz=tz_name).strftime("%Y-%m-%d %H:%M:%S %z")
+        except Exception:
+            entry_touched_at = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+    if persist_touch:
+        state[signal_key] = {
+            "market": market,
+            "symbol": symbol,
+            "horizon_label": horizon_label,
+            "entry_price": entry,
+            "entry_band_pct": entry_band_pct,
+            "entry_touched_at": entry_touched_at,
+            "signal_time_utc": signal_time_utc,
+            "valid_until": valid_until,
+            "updated_at_utc": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M:%S UTC"),
+        }
+        _save_entry_touch_state(state, processed_dir)
+    width = _safe_float(q90 - q10)
+    if not np.isfinite(width):
+        width = _safe_float(row.get("volatility_score"))
+    atr_proxy_pct = float(np.clip(max(0.003, (abs(width) / 2.0) if np.isfinite(width) else 0.003), 0.003, 0.03))
+
+    edge_long = _safe_float(q50 - cost_pct)
+    edge_short = _safe_float((-q50) - cost_pct)
+    edge_risk_long = _safe_float(edge_long / width) if np.isfinite(width) and width > 1e-12 else float("nan")
+    edge_risk_short = _safe_float(edge_short / width) if np.isfinite(width) and width > 1e-12 else float("nan")
+
+    model_health_norm = str(model_health).strip().lower()
+    model_health_ok = model_health_norm in {"良", "中", "good", "medium"}
+    long_prob_ok = bool(
+        np.isfinite(p_up_eval)
+        and (
+            p_up_eval >= (p_bull_exit if prev_action == "LONG" else p_bull)
+        )
+    )
+    short_prob_ok = bool(
+        np.isfinite(p_up_eval)
+        and (
+            p_up_eval <= (p_bear_exit if prev_action == "SHORT" else p_bear)
+        )
+    )
+    long_checks = [
+        (_t("p_up(平滑) >= 阈值", "p_up(smooth) >= threshold"), long_prob_ok),
+        (_t("edge_score > 0（覆盖成本）", "edge_score > 0 (covers cost)"), np.isfinite(edge_long) and edge_long > 0),
+        (_t("confidence >= 最低阈值", "confidence >= minimum"), np.isfinite(conf) and conf >= conf_min),
+        (_t("风险非极高", "risk is not extreme"), str(risk_level) != "extreme"),
+        (_t("模型健康非差", "model health is not bad"), model_health_ok),
+        (_t("无重大事件风险", "no major event risk"), not bool(event_risk)),
+    ]
+    short_checks = [
+        (_t("p_up(平滑) <= 阈值", "p_up(smooth) <= threshold"), short_prob_ok),
+        (_t("edge_score > 0（覆盖成本）", "edge_score > 0 (covers cost)"), np.isfinite(edge_short) and edge_short > 0),
+        (_t("confidence >= 最低阈值", "confidence >= minimum"), np.isfinite(conf) and conf >= conf_min),
+        (_t("允许做空", "shorting allowed"), allow_short),
+        (_t("风险非极高", "risk is not extreme"), str(risk_level) != "extreme"),
+        (_t("模型健康非差", "model health is not bad"), model_health_ok),
+        (_t("无重大事件风险", "no major event risk"), not bool(event_risk)),
+    ]
+    long_ok = all(ok for _, ok in long_checks)
+    short_ok = all(ok for _, ok in short_checks)
+
+    action = "WAIT"
+    if long_ok and not short_ok:
+        action = "LONG"
+    elif short_ok and not long_ok:
+        action = "SHORT"
+    elif long_ok and short_ok:
+        action = "LONG" if edge_risk_long >= edge_risk_short else "SHORT"
+    proposed_action = action
+
+    # Consistency triggers: only allow action updates when hard triggers happen.
+    consistency_reason_codes: List[str] = []
+    edge_active_now = edge_long if proposed_action == "LONG" else edge_short
+    new_signal_trigger = bool(prev_signal_key) and prev_signal_key != signal_key
+    new_bar_trigger = bool(prev_price_ts_utc) and bool(price_timestamp_utc) and (prev_price_ts_utc != price_timestamp_utc)
+    first_seen = not bool(consistency_prev)
+    if first_seen:
+        consistency_reason_codes.append("consistency:new_bar_close")
+    if new_signal_trigger:
+        consistency_reason_codes.append("consistency:signal_key_changed")
+    if new_bar_trigger:
+        consistency_reason_codes.append("consistency:new_bar_close")
+    if np.isfinite(prev_p_raw) and np.isfinite(p_up_raw) and abs(p_up_raw - prev_p_raw) >= delta_p_threshold:
+        consistency_reason_codes.append("consistency:delta_p_trigger")
+    delta_edge_pct = delta_edge_bps_threshold / 10000.0
+    prev_edge_active = _safe_float(consistency_prev.get("last_edge_active"))
+    if (
+        np.isfinite(prev_edge_active)
+        and np.isfinite(edge_active_now)
+        and abs(edge_active_now - prev_edge_active) >= delta_edge_pct
+    ):
+        consistency_reason_codes.append("consistency:delta_edge_trigger")
+    if prev_news_risk_level and news_risk_level_row and prev_news_risk_level != news_risk_level_row:
+        consistency_reason_codes.append("consistency:news_risk_trigger")
+
+    hard_recompute = bool(consistency_reason_codes)
+    last_update_utc = pd.to_datetime(consistency_prev.get("updated_at_utc"), utc=True, errors="coerce")
+    if (
+        consistency_enabled
+        and not hard_recompute
+        and prev_action in {"LONG", "SHORT", "WAIT"}
+        and pd.notna(last_update_utc)
+        and (now_utc - last_update_utc) <= (horizon_td * 6)
+    ):
+        action = prev_action
+        consistency_reason_codes.append("consistency:no_trigger_hold")
+
+    last_action_change_utc = pd.to_datetime(
+        consistency_prev.get("last_action_change_utc"), utc=True, errors="coerce"
+    )
+    last_hold_start_utc = pd.to_datetime(
+        consistency_prev.get("last_hold_start_utc"), utc=True, errors="coerce"
+    )
+    cooldown_td = horizon_td * max(cooldown_bars, 0)
+    min_hold_td = horizon_td * max(min_hold_bars, 0)
+    if action != prev_action and prev_action in {"LONG", "SHORT"}:
+        if (
+            consistency_enabled
+            and cooldown_bars > 0
+            and pd.notna(last_action_change_utc)
+            and (now_utc - last_action_change_utc) < cooldown_td
+        ):
+            action = prev_action
+            consistency_reason_codes.append("consistency:cooldown_active")
+        elif (
+            consistency_enabled
+            and min_hold_bars > 0
+            and pd.notna(last_hold_start_utc)
+            and (now_utc - last_hold_start_utc) < min_hold_td
+        ):
+            action = prev_action
+            consistency_reason_codes.append("consistency:min_hold_active")
+
+    # entry is fixed at signal snapshot (or persisted state), not refreshed with current price.
+    profile_key = {
+        "conservative": "conservative",
+        "standard": "standard",
+        "aggressive": "aggressive",
+        "保守": "conservative",
+        "标准": "standard",
+        "激进": "aggressive",
+    }.get(str(risk_profile or "standard").strip().lower(), "standard")
+    profile_display = {
+        "conservative": _t("保守", "Conservative"),
+        "standard": _t("标准", "Standard"),
+        "aggressive": _t("激进", "Aggressive"),
+    }.get(profile_key, _t("标准", "Standard"))
+
+    action_reason = _t("规则未全部满足，建议观望。", "Entry rules are not fully met. Suggested action: Wait.")
+    if profile_key == "conservative":
+        atr_mult = 1.0
+        tp_mode = "q50"
+        sl_mode = "max_q10_atr"
+    elif profile_key == "aggressive":
+        atr_mult = 2.0
+        tp_mode = "q90"
+        sl_mode = "q10_pref"
+    else:
+        atr_mult = 1.5
+        tp_mode = "mid"
+        sl_mode = "atr_pref"
+    plan_side = _plan_level_side(
+        action=action,
+        q50=q50,
+        p_up=p_up,
+        edge_risk_long=edge_risk_long,
+        edge_risk_short=edge_risk_short,
+    )
+    sl, tp, tp2, rr = _compute_plan_levels(
+        side=plan_side,
+        entry=entry,
+        q10=q10,
+        q50=q50,
+        q90=q90,
+        atr_proxy_pct=atr_proxy_pct,
+        atr_mult=atr_mult,
+        tp_mode=tp_mode,
+        sl_mode=sl_mode,
+    )
+    if action == "LONG" and np.isfinite(entry):
+        atr_stop_ret = -atr_mult * atr_proxy_pct
+        q10_ret = q10 if np.isfinite(q10) else float("nan")
+        if sl_mode == "max_q10_atr":
+            sl_ret = max(q10_ret if np.isfinite(q10_ret) else -999.0, atr_stop_ret)
+        elif sl_mode == "q10_pref":
+            sl_ret = q10_ret if np.isfinite(q10_ret) else atr_stop_ret
+        else:
+            sl_ret = atr_stop_ret if np.isfinite(atr_stop_ret) else q10_ret
+        sl = entry * (1.0 + sl_ret)
+        if tp_mode == "q90":
+            tp_ret = q90 if np.isfinite(q90) else q50
+        elif tp_mode == "mid":
+            if np.isfinite(q50) and np.isfinite(q90):
+                tp_ret = 0.5 * (q50 + q90)
+            else:
+                tp_ret = q50 if np.isfinite(q50) else q90
+        else:
+            tp_ret = q50 if np.isfinite(q50) else q90
+        tp = entry * (1.0 + tp_ret) if np.isfinite(tp_ret) else float("nan")
+        tp2 = entry * (1.0 + q90) if np.isfinite(q90) else float("nan")
+        risk = entry - sl
+        reward = tp - entry
+        rr = _safe_float(reward / risk) if np.isfinite(risk) and risk > 1e-12 else float("nan")
+        action_reason = _t(
+            "做多条件满足：方向概率、edge、置信度与风险过滤均通过。",
+            "Long conditions satisfied: direction probability, edge, confidence, and risk filters all pass.",
+        )
+    elif action == "SHORT" and np.isfinite(entry):
+        atr_stop_ret = atr_mult * atr_proxy_pct
+        q90_ret = q90 if np.isfinite(q90) else float("nan")
+        if sl_mode == "max_q10_atr":
+            sl_ret = min(q90_ret if np.isfinite(q90_ret) else 999.0, atr_stop_ret)
+        elif sl_mode == "q10_pref":
+            sl_ret = q90_ret if np.isfinite(q90_ret) else atr_stop_ret
+        else:
+            sl_ret = atr_stop_ret if np.isfinite(atr_stop_ret) else q90_ret
+        sl = entry * (1.0 + sl_ret)
+        if tp_mode == "q90":
+            tp_ret = q10 if np.isfinite(q10) else q50
+        elif tp_mode == "mid":
+            if np.isfinite(q10) and np.isfinite(q50):
+                tp_ret = 0.5 * (q10 + q50)
+            else:
+                tp_ret = q50 if np.isfinite(q50) else q10
+        else:
+            tp_ret = q50 if np.isfinite(q50) else q10
+        tp = entry * (1.0 + tp_ret) if np.isfinite(tp_ret) else float("nan")
+        tp2 = entry * (1.0 + q10) if np.isfinite(q10) else float("nan")
+        risk = sl - entry
+        reward = entry - tp
+        rr = _safe_float(reward / risk) if np.isfinite(risk) and risk > 1e-12 else float("nan")
+        action_reason = _t(
+            "做空条件满足：方向概率、edge、置信度与风险过滤均通过。",
+            "Short conditions satisfied: direction probability, edge, confidence, and risk filters all pass.",
+        )
+
+    if action == "WAIT" and entry_touched:
+        action_reason = _t(
+            "已到价，但规则未完全通过，建议继续观察。",
+            "Entry touched, but rule checks are not fully passed. Keep waiting.",
+        )
+
+    if action == "LONG":
+        selected_checks = long_checks
+    elif action == "SHORT":
+        selected_checks = short_checks
+    else:
+        selected_checks = long_checks if sum(1 for _, ok in long_checks if ok) >= sum(1 for _, ok in short_checks if ok) else short_checks
+    checks_passed = int(sum(1 for _, ok in selected_checks if ok))
+    checks_total = int(len(selected_checks))
+    failed_checks = [label for label, ok in selected_checks if not ok]
+    for token in consistency_reason_codes:
+        if token == "consistency:cooldown_active":
+            failed_checks.append(_t("处于冷却期", "Cooldown active"))
+        elif token == "consistency:min_hold_active":
+            failed_checks.append(_t("处于最小持有期", "Minimum-hold active"))
+        elif token == "consistency:no_trigger_hold":
+            failed_checks.append(_t("未触发重算条件", "No recompute trigger"))
+    gate_blocked = not (np.isfinite(current_price) and np.isfinite(entry))
+    gate_no_go = _is_go_live_no_go()
+    if gate_no_go:
+        gate_blocked = True
+    gate_reason_codes: List[str] = []
+    if gate_no_go:
+        gate_reason_codes.append("gate:no_go")
+    elif gate_blocked:
+        gate_reason_codes.append("price:data_unavailable")
+    valid_until_ts = pd.to_datetime(valid_until, utc=True, errors="coerce")
+    expired = bool(pd.notna(valid_until_ts) and pd.Timestamp.now(tz="UTC") > valid_until_ts)
+    if expired:
+        gate_reason_codes.append("signal:expired")
+    if gate_no_go:
+        trade_status = "BLOCKED"
+    elif gate_blocked:
+        trade_status = "BLOCKED"
+    elif expired:
+        trade_status = "EXPIRED"
+    elif action in {"LONG", "SHORT"}:
+        trade_status = "READY" if entry_touched else "WAIT_ENTRY"
+    else:
+        trade_status = "WAIT_RULES"
+    status_text_map = {
+        "READY": _t("可执行", "Ready"),
+        "WAIT_ENTRY": _t("等待到价", "Waiting Entry"),
+        "WAIT_RULES": _t("规则未通过", "Rules Not Passed"),
+        "BLOCKED": _t("阻断", "Blocked"),
+        "EXPIRED": _t("已过期", "Expired"),
+    }
+    if trade_status == "READY":
+        trade_status_note = _t("已到价 + 规则通过，可执行。", "Entry touched + rules passed, executable.")
+    elif trade_status == "WAIT_ENTRY":
+        trade_status_note = _t("规则已通过，等待到价。", "Rules passed, waiting for entry touch.")
+    elif "consistency:cooldown_active" in consistency_reason_codes:
+        trade_status_note = _t(
+            "处于冷却期，沿用上一信号，暂不切换。",
+            "Cooldown active. Keep previous signal and avoid switching.",
+        )
+    elif "consistency:min_hold_active" in consistency_reason_codes:
+        trade_status_note = _t(
+            "处于最小持有期，沿用上一信号，暂不切换。",
+            "Minimum-hold active. Keep previous signal and avoid switching.",
+        )
+    elif "consistency:no_trigger_hold" in consistency_reason_codes:
+        trade_status_note = _t(
+            "未触发重算条件，沿用上一信号。",
+            "No recompute trigger. Keep previous signal.",
+        )
+    elif trade_status == "WAIT_RULES" and entry_touched:
+        fail_text = " / ".join(failed_checks[:3]) if failed_checks else _t("未知", "unknown")
+        trade_status_note = _t(f"已到价，但规则未通过：{fail_text}", f"Entry touched but rules failed: {fail_text}")
+    elif trade_status == "WAIT_RULES":
+        fail_text = " / ".join(failed_checks[:3]) if failed_checks else _t("未知", "unknown")
+        trade_status_note = _t(f"规则未通过：{fail_text}", f"Rules failed: {fail_text}")
+    elif trade_status == "EXPIRED":
+        trade_status_note = _t("信号已过期，请刷新重算。", "Signal expired. Refresh and recompute.")
+    elif gate_no_go:
+        trade_status_note = _t("发布门禁未通过（NO GO），暂不可执行。", "Go-live gate is NO GO; execution is blocked.")
+    else:
+        trade_status_note = _t("价格/数据缺失，暂不可执行。", "Price/data missing. Execution blocked.")
+
+    execution_state = _execution_state_from_plan(
+        {
+            "trade_status": trade_status,
+            "entry_touched": entry_touched,
+        }
+    )
+    execution_state_text = _execution_state_text(execution_state)
+    execution_state_icon = _execution_state_icon(execution_state)
+
+    news_risk_level = news_risk_level_row
+    news_gate_raw = str(row.get("news_gate_pass", "true")).strip().lower()
+    news_event_raw = str(row.get("news_event_risk", "false")).strip().lower()
+    news_gate_pass = news_gate_raw in {"1", "true", "yes", "y", "on"}
+    news_event_flag = news_event_raw in {"1", "true", "yes", "y", "on"}
+
+    strength = _signal_strength_label(abs(_safe_float(p_up - 0.5)) * 100.0 if np.isfinite(p_up) else float("nan"), 2.0, 5.0)
+    strength_score = float(np.clip(abs(_safe_float(p_up - 0.5)) * 200.0, 0.0, 100.0)) if np.isfinite(p_up) else float("nan")
+    active_edge = edge_long if plan_side == "LONG" else edge_short
+    edge_norm = float(np.clip((_safe_float(active_edge) * 10000.0 + 10.0) / 40.0, 0.0, 1.0)) if np.isfinite(_safe_float(active_edge)) else 0.0
+    conf_norm = float(np.clip(_safe_float(conf) / 100.0, 0.0, 1.0)) if np.isfinite(conf) else 0.0
+    risk_norm = {"low": 1.0, "medium": 0.75, "high": 0.45, "extreme": 0.1}.get(str(risk_level).lower(), 0.4)
+    signal_score = float(np.clip(100.0 * (0.35 * (strength_score / 100.0) + 0.30 * edge_norm + 0.20 * conf_norm + 0.15 * risk_norm), 0.0, 100.0))
+
+    action_changed = prev_action != action
+    state_changed = prev_trade_status != trade_status
+    consistency_reason_codes = list(dict.fromkeys(consistency_reason_codes))
+    if (action_changed or state_changed) and not consistency_reason_codes:
+        consistency_reason_codes = ["consistency:new_bar_close"] if new_bar_trigger else ["consistency:signal_key_changed"]
+    consistency_reason_text = " | ".join(_reason_token_text(x) for x in consistency_reason_codes) if consistency_reason_codes else "-"
+
+    now_utc_text = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+    if consistency_enabled and persist_touch:
+        hold_start_ts_text = str(consistency_prev.get("last_hold_start_utc", ""))
+        if action in {"LONG", "SHORT"}:
+            if prev_action != action or not hold_start_ts_text:
+                hold_start_ts_text = now_utc_text
+        elif action not in {"LONG", "SHORT"}:
+            hold_start_ts_text = ""
+        action_change_ts_text = str(consistency_prev.get("last_action_change_utc", ""))
+        if action_changed:
+            action_change_ts_text = now_utc_text
+        consistency_state[consistency_key] = {
+            "market": market,
+            "symbol": symbol,
+            "horizon_label": horizon_label,
+            "last_action": action,
+            "last_trade_status": trade_status,
+            "last_signal_key": signal_key,
+            "last_signal_time_utc": signal_time_utc,
+            "last_price_timestamp_utc": price_timestamp_utc,
+            "last_p_up_raw": p_up_raw,
+            "p_up_ewma": p_up_smooth,
+            "last_edge_active": edge_active_now,
+            "last_news_risk_level": news_risk_level_row,
+            "last_action_change_utc": action_change_ts_text,
+            "last_hold_start_utc": hold_start_ts_text,
+            "updated_at_utc": now_utc_text,
+        }
+        _save_consistency_state(consistency_state, processed_dir)
+
+        if action_changed or state_changed:
+            tz_name_log = str(row.get("timezone", "Asia/Shanghai")) or "Asia/Shanghai"
+            try:
+                market_time = pd.Timestamp.now(tz=tz_name_log).strftime("%Y-%m-%d %H:%M:%S %z")
+            except Exception:
+                market_time = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M:%S UTC")
+            metric_delta = (
+                f"p_up_raw:{_format_float(prev_p_raw,4)}->{_format_float(p_up_raw,4)}|"
+                f"p_up_smooth:{_format_float(prev_p_ewma,4)}->{_format_float(p_up_smooth,4)}|"
+                f"edge_active:{_format_change_pct(prev_edge_active)}->{_format_change_pct(edge_active_now)}"
+            )
+            _append_signal_change_log(
+                {
+                    "change_time_utc": now_utc_text,
+                    "change_time_market": market_time,
+                    "market": market,
+                    "symbol": symbol,
+                    "horizon_label": horizon_label,
+                    "old_action": prev_action,
+                    "new_action": action,
+                    "old_state": prev_trade_status,
+                    "new_state": trade_status,
+                    "reason_code": ";".join(consistency_reason_codes),
+                    "key_metric_delta": metric_delta,
+                    "snapshot_id_old": prev_signal_key,
+                    "snapshot_id_new": signal_key,
+                },
+                processed_dir,
+            )
+
+    return {
+        "action": action,
+        "action_cn": {"LONG": _t("做多", "Long"), "SHORT": _t("做空", "Short"), "WAIT": _t("观望", "Wait")}.get(action, _t("观望", "Wait")),
+        "action_reason": action_reason,
+        "entry": entry,
+        "stop_loss": sl,
+        "take_profit": tp,
+        "take_profit_2": tp2,
+        "rr": rr,
+        "plan_side": plan_side,
+        "plan_side_text": _t("做多预案", "Long plan") if plan_side == "LONG" else _t("做空预案", "Short plan"),
+        "entry_band_pct": entry_band_pct,
+        "entry_gap_pct": entry_gap_pct,
+        "entry_touched": entry_touched,
+        "entry_touched_at": entry_touched_at,
+        "trade_status": trade_status,
+        "trade_status_text": status_text_map.get(trade_status, trade_status),
+        "trade_status_note": trade_status_note,
+        "execution_state": execution_state,
+        "execution_state_text": execution_state_text,
+        "execution_state_icon": execution_state_icon,
+        "signal_key": signal_key,
+        "signal_time_utc": signal_time_utc,
+        "valid_until": valid_until,
+        "price_source": price_source,
+        "price_timestamp_market": price_timestamp_market,
+        "price_timestamp_utc": price_timestamp_utc,
+        "consistency_key": consistency_key,
+        "consistency_reason_codes": consistency_reason_codes,
+        "consistency_reason_text": consistency_reason_text,
+        "p_up_raw": p_up_raw,
+        "p_up_smooth": p_up_smooth,
+        "consistency_prev_action": prev_action,
+        "consistency_prev_trade_status": prev_trade_status,
+        "consistency_action_changed": action_changed,
+        "consistency_state_changed": state_changed,
+        "failed_checks": failed_checks,
+        "gate_reason_codes": gate_reason_codes,
+        "horizon_label": horizon_label,
+        "risk_level": risk_level,
+        "confidence_score": conf,
+        "p_up": p_up,
+        "p_down": 1.0 - p_up if np.isfinite(p_up) else float("nan"),
+        "q10": q10,
+        "q50": q50,
+        "q90": q90,
+        "edge_long": edge_long,
+        "edge_short": edge_short,
+        "edge_risk_long": edge_risk_long,
+        "edge_risk_short": edge_risk_short,
+        "cost_bps": cost_bps,
+        "risk_profile": profile_display,
+        "model_health": model_health,
+        "event_risk": bool(event_risk),
+        "long_checks": long_checks,
+        "short_checks": short_checks,
+        "selected_checks": selected_checks,
+        "checks_passed": checks_passed,
+        "checks_total": checks_total,
+        "signal_strength": strength,
+        "signal_strength_text": _signal_strength_human_text(strength),
+        "signal_strength_score": strength_score,
+        "signal_score": signal_score,
+        "policy_reason": str(row.get("policy_reason", "-")),
+        "news_risk_level": news_risk_level,
+        "news_gate_pass": news_gate_pass,
+        "news_event_risk": news_event_flag,
+    }

@@ -1,15 +1,14 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>加密货币时段预测 - StockandCrypto</title>
-    <link rel="stylesheet" href="css/style.css">
-<link rel="stylesheet" href="css/components.css">
+    <title>交易时间段预测（Crypto）- StockandCrypto</title>
+    <link rel="stylesheet" href="css/style.css?v=20260301d">
+    <link rel="stylesheet" href="css/components.css?v=20260301d">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <!-- Header Navigation -->
     <header class="header">
         <div class="header-container">
             <div class="logo">
@@ -27,8 +26,8 @@
                 <ul class="nav-menu" id="navMenu">
                     <li><a href="index.html" class="nav-link">首页</a></li>
                     <li><a href="crypto.html" class="nav-link">Crypto</a></li>
-                    <li><a href="session-crypto.html" class="nav-link active">Crypto 时段</a></li>
-                    <li><a href="session-index.html" class="nav-link">指数时段</a></li>
+                    <li><a href="session-crypto.html" class="nav-link active">交易时段（Crypto）</a></li>
+                    <li><a href="session-index.html" class="nav-link">交易时段（指数）</a></li>
                 </ul>
             </nav>
             <div class="nav-actions">
@@ -37,213 +36,151 @@
         </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="main-content">
-        <!-- Page Header -->
+    <main class="main-content session-page-main">
         <section class="page-header">
             <div class="container">
                 <div class="page-header-content">
-                    <span class="page-tag">时段预测</span>
-                    <h1 class="page-title">Crypto 交易时段预测</h1>
-                    <p class="page-desc">基于全球交易时段的加密货币波动预测</p>
+                    <span class="page-tag">Session Forecast</span>
+                    <h1 class="page-title">交易时间段预测（Crypto）</h1>
+                    <p class="page-desc">按小时与交易时段查看 Forecast / Seasonality、交易决策卡、日线与 TopN 榜单。</p>
                 </div>
             </div>
         </section>
 
-        <!-- Trading Sessions Overview -->
-        <section class="section-padding">
+        <section class="section-padding" style="padding-top: 0;">
+            <div class="container">
+                <div class="session-panel" id="scControlPanel">
+                    <div class="session-panel-header">
+                        <h2 class="session-panel-title">控制参数</h2>
+                        <button class="refresh-btn" id="scRefreshBtn" type="button">刷新并重算</button>
+                    </div>
+                    <div class="session-controls-grid">
+                        <label class="session-field"><span>币种</span><select id="scSymbol"></select></label>
+                        <label class="session-field"><span>数据源</span><select id="scExchange"></select></label>
+                        <label class="session-field"><span>市场类型</span><select id="scMarketType"></select></label>
+                        <label class="session-field"><span>模式</span><select id="scMode"></select></label>
+                        <label class="session-field"><span>小时周期</span><select id="scHorizon"></select></label>
+                        <label class="session-field"><span>未来 N 天</span><input id="scLookforward" type="number" min="7" max="30" step="1"></label>
+                        <label class="session-field"><span>风险偏好</span><select id="scRisk"></select></label>
+                        <label class="session-field"><span>榜单排序</span><select id="scRank"></select></label>
+                        <label class="session-field"><span>Top N</span><input id="scTopN" type="number" min="3" max="12" step="1"></label>
+                        <label class="session-field"><span>成本(bps)</span><input id="scCost" type="number" min="0" max="200" step="0.5"></label>
+                    </div>
+                    <label class="session-check">
+                        <input id="scCompare" type="checkbox" checked>
+                        <span>显示 Forecast vs Seasonality 对照</span>
+                    </label>
+                </div>
+
+                <div class="session-meta" id="scMeta">
+                    <div class="session-meta-line" id="scMetaLine">加载中...</div>
+                    <details class="session-meta-details">
+                        <summary>数据 & 模型信息</summary>
+                        <pre id="scDataInfo"></pre>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-padding" style="padding-top: 0;">
+            <div class="container">
+                <div class="decision-card" id="scDecisionCard"></div>
+                <div class="decision-metrics" id="scTradePlanMetrics"></div>
+            </div>
+        </section>
+
+        <section class="section-padding" style="padding-top: 0;">
             <div class="container">
                 <div class="section-header">
-                    <h2 class="section-title">全球交易时段</h2>
-                    <p class="section-desc">24小时加密货币市场活跃时段分析</p>
+                    <h2 class="section-title">时段信号</h2>
+                    <p class="section-desc">亚盘 / 欧盘 / 美盘的方向概率、目标变化、风险等级。</p>
                 </div>
-
-                <div class="sessions-grid">
-                    <!-- 亚洲时段 -->
-                    <div class="session-card" id="asianSession">
-                        <div class="session-header">
-                            <div class="session-icon">🌏</div>
-                            <div class="session-info">
-                                <h3 class="session-name">亚洲时段</h3>
-                                <span class="session-time">08:00 - 16:00 UTC+8</span>
-                            </div>
-                            <div class="session-status" id="asianStatus">
-                                <span class="status-dot"></span>
-                                <span class="status-text">休市</span>
-                            </div>
-                        </div>
-                        <div class="session-content">
-                            <div class="session-prediction">
-                                <span class="prediction-label">波动预测</span>
-                                <div class="prediction-bar">
-                                    <div class="bar-fill" style="width: 65%"></div>
-                                </div>
-                                <span class="prediction-value">中等波动</span>
-                            </div>
-                            <div class="session-details">
-                                <div class="detail">
-                                    <span class="detail-label">BTC 预测方向</span>
-                                    <span class="detail-value bullish">↑ 震荡偏强</span>
-                                </div>
-                                <div class="detail">
-                                    <span class="detail-label">主要影响币种</span>
-                                    <span class="detail-value">BTC, ETH, SOL</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 欧洲时段 -->
-                    <div class="session-card" id="europeanSession">
-                        <div class="session-header">
-                            <div class="session-icon">🌍</div>
-                            <div class="session-info">
-                                <h3 class="session-name">欧洲时段</h3>
-                                <span class="session-time">15:00 - 23:00 UTC+8</span>
-                            </div>
-                            <div class="session-status" id="europeanStatus">
-                                <span class="status-dot"></span>
-                                <span class="status-text">休市</span>
-                            </div>
-                        </div>
-                        <div class="session-content">
-                            <div class="session-prediction">
-                                <span class="prediction-label">波动预测</span>
-                                <div class="prediction-bar">
-                                    <div class="bar-fill" style="width: 75%"></div>
-                                </div>
-                                <span class="prediction-value">较高波动</span>
-                            </div>
-                            <div class="session-details">
-                                <div class="detail">
-                                    <span class="detail-label">BTC 预测方向</span>
-                                    <span class="detail-value bullish">↑ 上涨概率高</span>
-                                </div>
-                                <div class="detail">
-                                    <span class="detail-label">主要影响币种</span>
-                                    <span class="detail-value">BTC, ETH, ADA</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 美国时段 -->
-                    <div class="session-card active" id="americanSession">
-                        <div class="session-header">
-                            <div class="session-icon">🌎</div>
-                            <div class="session-info">
-                                <h3 class="session-name">美国时段</h3>
-                                <span class="session-time">21:00 - 04:00 UTC+8</span>
-                            </div>
-                            <div class="session-status active" id="americanStatus">
-                                <span class="status-dot"></span>
-                                <span class="status-text">交易中</span>
-                            </div>
-                        </div>
-                        <div class="session-content">
-                            <div class="session-prediction">
-                                <span class="prediction-label">波动预测</span>
-                                <div class="prediction-bar">
-                                    <div class="bar-fill high" style="width: 90%"></div>
-                                </div>
-                                <span class="prediction-value">高波动</span>
-                            </div>
-                            <div class="session-details">
-                                <div class="detail">
-                                    <span class="detail-label">BTC 预测方向</span>
-                                    <span class="detail-value bearish">↓ 下跌风险</span>
-                                </div>
-                                <div class="detail">
-                                    <span class="detail-label">主要影响币种</span>
-                                    <span class="detail-value">BTC, ETH, DOGE</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <div class="sessions-grid" id="scSessionCards"></div>
             </div>
         </section>
 
-        <!-- Hourly Predictions -->
-        <section class="section-padding section-dark">
+        <section class="section-padding section-dark" style="padding-top: 0;">
             <div class="container">
                 <div class="section-header">
-                    <h2 class="section-title">逐小时预测</h2>
-                    <p class="section-desc">未来24小时各时段详细预测</p>
+                    <h2 class="section-title">Forecast vs Seasonality 对照</h2>
+                    <p class="section-desc">重点关注 Δp_up 与 Δq50 的偏离。</p>
                 </div>
-
-                <div class="hourly-grid" id="hourlyGrid">
-                    <!-- Hours will be populated by JavaScript -->
-                </div>
+                <div class="table-shell" id="scCompareWrap"></div>
             </div>
         </section>
 
-        <!-- Prediction Summary -->
-        <section class="section-padding">
-            <div class="container">
-                <div class="summary-grid">
-                    <div class="summary-card">
-                        <h3 class="summary-title">今日预测总结</h3>
-                        <div class="summary-content" id="summaryContent">
-                            <div class="summary-item">
-                                <span class="summary-label">整体趋势</span>
-                                <span class="summary-value bullish" id="overallTrend">震荡上行</span>
-                            </div>
-                            <div class="summary-item">
-                                <span class="summary-label">最佳交易时段</span>
-                                <span class="summary-value" id="bestSession">21:00 - 23:00</span>
-                            </div>
-                            <div class="summary-item">
-                                <span class="summary-label">风险时段</span>
-                                <span class="summary-value warning" id="riskSession">02:00 - 04:00</span>
-                            </div>
-                            <div class="summary-item">
-                                <span class="summary-label">预测置信度</span>
-                                <span class="summary-value" id="confidence">76%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="chart-card">
-                        <h3 class="chart-title">24小时波动预测</h3>
-                        <div class="chart-wrapper">
-                            <canvas id="hourlyChart" height="200"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- AI Insights -->
-        <section class="section-padding section-dark">
+        <section class="section-padding" style="padding-top: 0;">
             <div class="container">
                 <div class="section-header">
-                    <h2 class="section-title">AI 分析洞察</h2>
-                    <p class="section-desc">机器学习模型分析结果</p>
+                    <h2 class="section-title">24h 热力图</h2>
+                    <p class="section-desc">从每个小时起算未来窗口的概率与波动。</p>
                 </div>
+                <div class="heatmap-panel">
+                    <div class="heatmap-tabs" id="scHeatmapTabs">
+                        <button class="heatmap-tab active" data-metric="p_up" type="button">上涨概率</button>
+                        <button class="heatmap-tab" data-metric="p_down" type="button">下跌概率</button>
+                        <button class="heatmap-tab" data-metric="volatility_score" type="button">波动强度</button>
+                        <button class="heatmap-tab" data-metric="confidence_score" type="button">置信度</button>
+                    </div>
+                    <div class="heatmap-grid" id="scHeatmapGrid"></div>
+                </div>
+            </div>
+        </section>
 
-                <div class="insight-cards">
-                    <div class="insight-card">
-                        <div class="insight-icon">📊</div>
-                        <h4 class="insight-title">技术指标分析</h4>
-                        <p class="insight-content">RSI 显示超买信号，MACD 柱状图收缩，布林带收窄，预计即将出现方向性突破。</p>
-                    </div>
-                    <div class="insight-card">
-                        <div class="insight-icon">🌡️</div>
-                        <h4 class="insight-title">市场情绪</h4>
-                        <p class="insight-content">恐惧贪婪指数为 62（贪婪），社交媒体情绪偏向乐观，机构持仓稳定。</p>
-                    </div>
-                    <div class="insight-card">
-                        <div class="insight-icon">🔗</div>
-                        <h4 class="insight-title">链上数据</h4>
-                        <p class="insight-content">交易所净流出增加，长期持有者占比上升，网络活跃度维持高位。</p>
+        <section class="section-padding section-dark" style="padding-top: 0;">
+            <div class="container">
+                <div class="section-header">
+                    <h2 class="section-title">模拟路径（未来）</h2>
+                    <p class="section-desc">按 q10 / q50 / q90 生成的未来价格带。</p>
+                </div>
+                <div class="chart-container-enhanced">
+                    <div class="sim-layout">
+                        <div class="chart-wrapper sim-chart-wrapper" style="height: 320px;">
+                            <canvas id="scSimChart"></canvas>
+                        </div>
+                        <aside class="sim-side-panel" id="scSimStats" aria-live="polite">
+                            <div class="sim-side-empty">等待预测数据...</div>
+                        </aside>
                     </div>
                 </div>
+            </div>
+        </section>
+
+        <section class="section-padding" style="padding-top: 0;">
+            <div class="container">
+                <div class="section-header">
+                    <h2 class="section-title">未来 N 天日线预测</h2>
+                    <p class="section-desc">按日期查看方向、目标价、风险、置信度。</p>
+                </div>
+                <div class="table-shell" id="scDailyWrap"></div>
+            </div>
+        </section>
+
+        <section class="section-padding section-dark" style="padding-top: 0;">
+            <div class="container">
+                <div class="section-header">
+                    <h2 class="section-title">TopN 榜单</h2>
+                    <p class="section-desc">按 Edge / Risk / 概率对小时级与日线级机会排序。</p>
+                </div>
+                <div class="ranking-grid">
+                    <div class="ranking-col">
+                        <h3>小时级 TopN</h3>
+                        <div class="table-shell" id="scTopHourlyUp"></div>
+                        <div class="table-shell" id="scTopHourlyDown"></div>
+                        <div class="table-shell" id="scTopHourlyVol"></div>
+                    </div>
+                    <div class="ranking-col">
+                        <h3>日线级 TopN</h3>
+                        <div class="table-shell" id="scTopDailyUp"></div>
+                        <div class="table-shell" id="scTopDailyDown"></div>
+                        <div class="table-shell" id="scTopDailyVol"></div>
+                    </div>
+                </div>
+                <ul class="session-notes" id="scNotes"></ul>
             </div>
         </section>
     </main>
 
-    <!-- Footer -->
     <footer class="footer">
         <div class="container">
             <div class="footer-bottom" style="border-top: none; padding-top: 0;">
@@ -256,8 +193,10 @@
         </div>
     </footer>
 
-    <script src="js/api.js"></script>
-    <script src="js/main.js"></script>
-    <script src="js/session-crypto.js"></script>
+    <div id="toast" class="toast"></div>
+
+    <script src="js/api.js?v=20260301d"></script>
+    <script src="js/main.js?v=20260301d"></script>
+    <script src="js/session-crypto.js?v=20260301d"></script>
 </body>
 </html>

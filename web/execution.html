@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Trading / Execution - StockandCrypto</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-container">
+            <div class="logo">
+                <a href="index.html" style="display:flex;align-items:center;gap:.5rem;">
+                    <span class="logo-icon">◈</span>
+                    <span class="logo-text">StockandCrypto</span>
+                </a>
+            </div>
+            <nav class="nav">
+                <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="index.html" class="nav-link">首页</a></li>
+                    <li><a href="crypto.html" class="nav-link">Crypto</a></li>
+                    <li><a href="cn-equity.html" class="nav-link">A股</a></li>
+                    <li><a href="us-equity.html" class="nav-link">美股</a></li>
+                    <li><a href="session-crypto.html" class="nav-link">Crypto时段</a></li>
+                    <li><a href="session-index.html" class="nav-link">指数时段</a></li>
+                    <li><a href="notes.html" class="nav-link">Notes</a></li>
+                    <li><a href="tracking.html" class="nav-link">Selection/Tracking</a></li>
+                    <li><a href="execution.html" class="nav-link">Paper Trading</a></li>
+                </ul>
+            </nav>
+            <div class="nav-actions">
+                <a href="login.html" class="btn btn-secondary btn-sm">登录</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <section class="page-header">
+            <div class="container">
+                <div class="page-header-content">
+                    <span class="page-tag">Paper Trading / Execution</span>
+                    <h1 class="page-title">模拟执行与日志</h1>
+                    <p class="page-desc">对齐 Streamlit 的执行页：订单、成交、持仓、PnL 与运行日志。</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-padding">
+            <div class="container">
+                <div class="notes-header-row">
+                    <h3>执行概览</h3>
+                    <div class="btn-group-inline">
+                        <button id="executionRefreshBtn" class="btn btn-secondary">刷新</button>
+                        <button id="executionClearBtn" class="btn btn-secondary">清空日志</button>
+                    </div>
+                </div>
+
+                <div class="metrics-grid" id="executionMetrics"></div>
+
+                <div class="notes-card" style="margin-top:24px;">
+                    <div class="tab-row" id="executionTabRow">
+                        <button class="tab-btn active" data-tab="decision_logs">Decision Logs</button>
+                        <button class="tab-btn" data-tab="orders">Orders</button>
+                        <button class="tab-btn" data-tab="fills">Fills</button>
+                        <button class="tab-btn" data-tab="positions">Positions</button>
+                        <button class="tab-btn" data-tab="daily_pnl">Daily PnL</button>
+                        <button class="tab-btn" data-tab="run_log">Run Log</button>
+                        <button class="tab-btn" data-tab="gate_log">Gate Log</button>
+                        <button class="tab-btn" data-tab="kill_switch_events">Kill Switch</button>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead id="executionTableHead"></thead>
+                            <tbody id="executionTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="js/api.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/execution.js"></script>
+</body>
+</html>

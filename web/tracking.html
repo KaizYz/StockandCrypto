@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Selection / Tracking - StockandCrypto</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-container">
+            <div class="logo">
+                <a href="index.html" style="display:flex;align-items:center;gap:.5rem;">
+                    <span class="logo-icon">◈</span>
+                    <span class="logo-text">StockandCrypto</span>
+                </a>
+            </div>
+            <nav class="nav">
+                <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="index.html" class="nav-link">首页</a></li>
+                    <li><a href="crypto.html" class="nav-link">Crypto</a></li>
+                    <li><a href="cn-equity.html" class="nav-link">A股</a></li>
+                    <li><a href="us-equity.html" class="nav-link">美股</a></li>
+                    <li><a href="session-crypto.html" class="nav-link">Crypto时段</a></li>
+                    <li><a href="session-index.html" class="nav-link">指数时段</a></li>
+                    <li><a href="notes.html" class="nav-link">Notes</a></li>
+                    <li><a href="tracking.html" class="nav-link">Selection/Tracking</a></li>
+                    <li><a href="execution.html" class="nav-link">Paper Trading</a></li>
+                </ul>
+            </nav>
+            <div class="nav-actions">
+                <a href="login.html" class="btn btn-secondary btn-sm">登录</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <section class="page-header">
+            <div class="container">
+                <div class="page-header-content">
+                    <span class="page-tag">Selection / Research / Tracking</span>
+                    <h1 class="page-title">标的筛选与跟踪</h1>
+                    <p class="page-desc">按策略动作、置信度、风险和边际优势筛选机会，并提供单标的 drill-down。</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-padding">
+            <div class="container">
+                <div class="tracking-controls">
+                    <select id="marketFilter" class="symbol-select">
+                        <option value="all">全部市场</option>
+                        <option value="crypto">Crypto</option>
+                        <option value="cn">A股</option>
+                        <option value="us">美股</option>
+                    </select>
+                    <select id="statusFilter" class="symbol-select">
+                        <option value="all">全部状态</option>
+                        <option value="executable">可执行</option>
+                        <option value="watch">观察</option>
+                        <option value="paused">暂停</option>
+                    </select>
+                    <select id="actionFilter" class="symbol-select">
+                        <option value="all">全部动作</option>
+                        <option value="long">做多</option>
+                        <option value="short">做空</option>
+                        <option value="flat">观望</option>
+                    </select>
+                    <select id="sortBy" class="symbol-select">
+                        <option value="edge_risk">按 edge_risk</option>
+                        <option value="edge_score">按 edge_score</option>
+                        <option value="confidence_score">按 confidence</option>
+                        <option value="total_score">按 total_score</option>
+                        <option value="liquidity_score">按 liquidity</option>
+                    </select>
+                    <label class="checkbox-row" style="min-width:110px;">
+                        <input id="sortDesc" type="checkbox" checked>
+                        <span>降序</span>
+                    </label>
+                    <input id="trackingQuery" class="symbol-select" style="min-width:220px;" type="text" placeholder="搜索 symbol / 名称 / 理由">
+                    <button id="trackingRefreshBtn" class="refresh-btn">
+                        <span>刷新</span>
+                    </button>
+                </div>
+
+                <div class="metrics-grid" id="trackingMetrics"></div>
+
+                <div class="notes-grid">
+                    <div class="notes-card">
+                        <h3>Top 做多机会</h3>
+                        <div id="topLong" class="mini-table-wrap"></div>
+                    </div>
+                    <div class="notes-card">
+                        <h3>Top 做空机会</h3>
+                        <div id="topShort" class="mini-table-wrap"></div>
+                    </div>
+                    <div class="notes-card">
+                        <h3>Top 观察名单</h3>
+                        <div id="topWatch" class="mini-table-wrap"></div>
+                    </div>
+                </div>
+
+                <div class="notes-card" style="margin-top:24px;">
+                    <div class="notes-header-row">
+                        <h3>Screener</h3>
+                        <span id="trackingCountLabel">0 条</span>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table" id="trackingTable">
+                            <thead>
+                                <tr>
+                                    <th>市场</th>
+                                    <th>标的</th>
+                                    <th>动作</th>
+                                    <th>状态</th>
+                                    <th>当前价</th>
+                                    <th>预测价</th>
+                                    <th>预测涨跌</th>
+                                    <th>置信度</th>
+                                    <th>风险</th>
+                                    <th>edge</th>
+                                    <th>edge_risk</th>
+                                    <th>详情</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trackingTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="notes-card" style="margin-top:24px;">
+                    <h3>单标的详情</h3>
+                    <div id="trackingDetail" class="detail-box">
+                        <p class="section-desc">点击上方 Screener 的“查看”加载详情。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="js/api.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/tracking.js"></script>
+</body>
+</html>

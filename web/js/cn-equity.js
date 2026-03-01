@@ -7,8 +7,53 @@ document.addEventListener('DOMContentLoaded', function() {
 
 let cnIndexCharts = {};
 let cnTrendChart = null;
+let cnSignalChart = null;
 let cnStocksData = [];
 let currentStock = '600519.SH';
+let cnSignalPeriod = '1D';
+
+const CN_STOCK_ID_MAP = {
+    '600519': 'moutai',
+    '300750': 'ningde',
+    '002594': 'byd',
+    '601318': 'pingan',
+    '600036': 'cmb',
+};
+
+function _safeNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+function _cnSymbolKey(symbol) {
+    const s = String(symbol || '').toUpperCase().trim();
+    if (s.includes('.')) return s.split('.')[0];
+    return s;
+}
+
+function _formatChartLabel(ts, interval = 'daily') {
+    if (!ts) return '';
+    const dt = new Date(ts);
+    if (Number.isNaN(dt.getTime())) return '';
+    if (interval === 'hourly') {
+        return `${String(dt.getHours()).padStart(2, '0')}:00`;
+    }
+    return dt.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+}
+
+function _buildSeriesFromBars(bars, interval) {
+    const rows = Array.isArray(bars) ? bars : [];
+    const cleaned = rows
+        .map((row) => ({
+            label: _formatChartLabel(row.timestamp, interval),
+            close: _safeNumber(row.close),
+        }))
+        .filter((row) => row.label && row.close !== null);
+    return {
+        labels: cleaned.map((x) => x.label),
+        values: cleaned.map((x) => x.close),
+    };
+}
 
 // ========================================
 // 初始化
@@ -16,30 +61,36 @@ let currentStock = '600519.SH';
 async function initCNEquityPage() {
     // 显示加载状态
     showLoadingState();
+    try {
+        // 加载市场数据
+        await loadMarketData();
 
-    // 加载市场数据
-    await loadMarketData();
+        // 初始化图表
+        initCharts();
 
-    // 初始化图表
-    initCharts();
+        // 加载预测数据
+        await loadPredictions();
 
-    // 加载预测数据
-    await loadPredictions();
+        // 加载当前选择的股票信号
+        await loadSignalData();
 
-    // 加载当前选择的股票信号
-    await loadSignalData();
+        // 加载股票列表
+        await loadSymbols();
 
-    // 加载股票列表
-    await loadSymbols();
+        // 启动实时更新
+        startRealTimeUpdates();
 
-    // 启动实时更新
-    startRealTimeUpdates();
-
-    // 绑定事件
-    bindEvents();
-
-    // 隐藏加载状态
-    hideLoadingState();
+        // 绑定事件
+        bindEvents();
+    } catch (error) {
+        console.error('Failed to initialize CN equity page:', error);
+        if (typeof showToast === 'function') {
+            showToast(`页面初始化失败: ${error.message || '未知错误'}`, 'error');
+        }
+    } finally {
+        // 隐藏加载状态
+        hideLoadingState();
+    }
 }
 
 // ========================================
@@ -122,6 +173,7 @@ async function loadSignalData() {
         const signal = await api.cn.getPrediction(symbol);
         if (signal) {
             updateSignalCard(signal);
+            await updateSignalChart(symbol, cnSignalPeriod);
         } else {
             useMockSignalData(symbol);
         }
@@ -139,6 +191,27 @@ async function loadSymbols() {
         const symbols = await api.cn.getSymbols();
         if (symbols && symbols.length > 0) {
             cnStocksData = symbols;
+            const selector = document.getElementById('stockSelector');
+            if (selector) {
+                const previous = currentStock;
+                selector.innerHTML = '';
+                symbols.forEach((item) => {
+                    const symbol = String(item.symbol || '').toUpperCase();
+                    if (!symbol) return;
+                    const option = document.createElement('option');
+                    const name = item.name || symbol;
+                    option.value = symbol;
+                    option.textContent = `${name} (${symbol})`;
+                    selector.appendChild(option);
+                });
+                if ([...selector.options].some((o) => o.value === previous)) {
+                    selector.value = previous;
+                    currentStock = previous;
+                } else if (selector.options.length > 0) {
+                    selector.selectedIndex = 0;
+                    currentStock = selector.value;
+                }
+            }
         }
     } catch (error) {
         console.error('Failed to load symbols:', error);
@@ -228,6 +301,7 @@ function useMockSignalData(symbol) {
     };
 
     updateSignalCard(mockSignal);
+    updateSignalChart(symbol, cnSignalPeriod).catch(() => {});
 }
 
 // ========================================
@@ -263,13 +337,15 @@ function updateSignalCard(signal) {
 
     // 更新价格
     const currentPriceEl = document.getElementById('currentPrice');
-    if (currentPriceEl && signal.current_price) {
-        currentPriceEl.textContent = `¥${signal.current_price.toFixed(2)}`;
+    const currentPrice = _safeNumber(signal.current_price);
+    if (currentPriceEl && currentPrice !== null) {
+        currentPriceEl.textContent = `¥${currentPrice.toFixed(2)}`;
     }
 
     const targetPriceEl = document.getElementById('targetPrice');
-    if (targetPriceEl && signal.target_price) {
-        targetPriceEl.textContent = `¥${signal.target_price.toFixed(2)}`;
+    const targetPrice = _safeNumber(signal.target_price ?? signal.target_price_q50);
+    if (targetPriceEl && targetPrice !== null) {
+        targetPriceEl.textContent = `¥${targetPrice.toFixed(2)}`;
     }
 
     // 更新概率
@@ -295,7 +371,8 @@ function updateSignalCard(signal) {
     }
 
     // 更新置信度
-    const confidence = signal.confidence || signal.confidence_score || 60;
+    let confidence = signal.confidence ?? signal.confidence_score ?? 60;
+    if (confidence <= 1) confidence = confidence * 100;
     const confidenceBar = document.getElementById('confidenceBar');
     const confidenceValue = document.getElementById('confidenceValue');
     if (confidenceBar) {
@@ -452,20 +529,27 @@ function updateStockTable(data) {
 // 从API更新预测数据
 // ========================================
 function updatePredictionsFromAPI(predictions) {
-    predictions.forEach(pred => {
-        const symbol = pred.symbol?.toLowerCase();
-        const priceEl = document.getElementById(`${symbol}Price`);
-        const changeEl = document.getElementById(`${symbol}Change`);
-        const targetEl = document.getElementById(`${symbol}Target`);
-        if (priceEl && pred.current_price) {
-            priceEl.textContent = `¥${pred.current_price.toFixed(2)}`;
+    predictions.forEach((pred) => {
+        const rowId = CN_STOCK_ID_MAP[_cnSymbolKey(pred.symbol)];
+        if (!rowId) return;
+
+        const priceEl = document.getElementById(`${rowId}Price`);
+        const changeEl = document.getElementById(`${rowId}Change`);
+        const targetEl = document.getElementById(`${rowId}Target`);
+
+        const currentPrice = _safeNumber(pred.current_price);
+        const changePercent = _safeNumber(pred.change_percent ?? ((pred.predicted_change_pct ?? 0) * 100));
+        const targetPrice = _safeNumber(pred.target_price ?? pred.predicted_price);
+
+        if (priceEl && currentPrice !== null) {
+            priceEl.textContent = `¥${currentPrice.toFixed(2)}`;
         }
-        if (changeEl && pred.change_percent !== undefined) {
-            changeEl.textContent = `${pred.change_percent >= 0 ? '+' : ''}${pred.change_percent.toFixed(2)}%`;
-            changeEl.className = pred.change_percent >= 0 ? 'positive' : 'negative';
+        if (changeEl && changePercent !== null) {
+            changeEl.textContent = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
+            changeEl.className = changePercent >= 0 ? 'positive' : 'negative';
         }
-        if (targetEl && pred.target_price) {
-            targetEl.textContent = `¥${pred.target_price}`;
+        if (targetEl && targetPrice !== null) {
+            targetEl.textContent = `¥${targetPrice.toFixed(2)}`;
         }
     });
 }
@@ -497,9 +581,13 @@ function initCharts() {
     Chart.defaults.font.family = 'Inter, sans-serif';
 
     // 创建指数图表
-    createIndexChart('shChart', generateSparklineData(3050, 3100), '#00d4aa');
-    createIndexChart('szChart', generateSparklineData(10200, 10300), '#d4af37');
-    createIndexChart('cybChart', generateSparklineData(2080, 2100), '#ff6b6b');
+    createIndexChart('shChart', [], '#00d4aa');
+    createIndexChart('szChart', [], '#d4af37');
+    createIndexChart('cybChart', [], '#ff6b6b');
+    createSignalChart();
+    updateCNIndexCharts().catch((error) => {
+        console.error('Failed to initialize CN index history charts:', error);
+    });
 }
 
 function createIndexChart(canvasId, data, color) {
@@ -507,6 +595,7 @@ function createIndexChart(canvasId, data, color) {
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
+    const values = Array.isArray(data) ? data : [];
     const gradient = ctx.createLinearGradient(0, 0, 0, 80);
     gradient.addColorStop(0, color + '40');
     gradient.addColorStop(1, color + '00');
@@ -514,9 +603,9 @@ function createIndexChart(canvasId, data, color) {
     cnIndexCharts[canvasId] = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: data.map((_, i) => i),
+            labels: values.map((_, i) => i),
             datasets: [{
-                data: data,
+                data: values,
                 borderColor: color,
                 backgroundColor: gradient,
                 fill: true,
@@ -540,28 +629,153 @@ function createIndexChart(canvasId, data, color) {
     });
 }
 
+async function updateCNIndexCharts() {
+    const defs = [
+        { canvasId: 'shChart', symbol: '000001.SH' },
+        { canvasId: 'szChart', symbol: '399001.SZ' },
+        { canvasId: 'cybChart', symbol: '399006.SZ' },
+    ];
+
+    await Promise.all(defs.map(async ({ canvasId, symbol }) => {
+        const chart = cnIndexCharts[canvasId];
+        if (!chart) return;
+        try {
+            const history = await api.market.getHistory(symbol, {
+                period: '1D',
+                interval: 'hourly',
+                limit: 24,
+            });
+            const series = _buildSeriesFromBars(history?.bars, 'hourly');
+            if (series.values.length > 1) {
+                chart.data.labels = series.labels;
+                chart.data.datasets[0].data = series.values;
+                chart.update('none');
+            }
+        } catch (error) {
+            console.error(`Failed to load CN index history for ${symbol}:`, error);
+        }
+    }));
+}
+
+function createSignalChart() {
+    const canvas = document.getElementById('signalChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 350);
+    gradient.addColorStop(0, 'rgba(0, 212, 170, 0.2)');
+    gradient.addColorStop(1, 'rgba(0, 212, 170, 0)');
+
+    cnSignalChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: '股价',
+                data: [],
+                borderColor: '#00d4aa',
+                backgroundColor: gradient,
+                fill: true,
+                tension: 0.35,
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: '#00d4aa',
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(10, 15, 26, 0.95)',
+                    titleColor: '#ffffff',
+                    bodyColor: '#00d4aa',
+                    borderColor: 'rgba(0, 212, 170, 0.3)',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    padding: 12,
+                    callbacks: {
+                        label: (ctx) => `¥${Number(ctx.parsed.y).toFixed(2)}`,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#8892a0', maxTicksLimit: 8 },
+                },
+                y: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: {
+                        color: '#8892a0',
+                        callback: (value) => `¥${Number(value).toFixed(0)}`,
+                    },
+                },
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index',
+            },
+        },
+    });
+
+    updateSignalChart(currentStock, cnSignalPeriod).catch((error) => {
+        console.error('Failed to initialize CN signal chart:', error);
+    });
+}
+
+async function updateSignalChart(symbol, period = '1D') {
+    if (!cnSignalChart) return;
+    cnSignalPeriod = period;
+
+    const periodConfig = {
+        '1D': { interval: 'hourly', limit: 48, labelUnit: 'hour' },
+        '1W': { interval: 'daily', limit: 14, labelUnit: 'day' },
+        '1M': { interval: 'daily', limit: 45, labelUnit: 'day' },
+    };
+    const cfg = periodConfig[String(period || '').toUpperCase()] || periodConfig['1D'];
+
+    let labels = [];
+    let values = [];
+    try {
+        const history = await api.market.getHistory(symbol, {
+            period,
+            interval: cfg.interval,
+            limit: cfg.limit,
+        });
+        const series = _buildSeriesFromBars(history?.bars, cfg.interval);
+        labels = series.labels;
+        values = series.values;
+    } catch (error) {
+        console.error(`Failed to load CN history for ${symbol}:`, error);
+    }
+
+    if (!labels.length || !values.length) {
+        return;
+    }
+
+    cnSignalChart.data.labels = labels;
+    cnSignalChart.data.datasets[0].data = values;
+    cnSignalChart.update('none');
+}
+
 // ========================================
 // 实时更新
 // ========================================
 function startRealTimeUpdates() {
-    setInterval(() => {
-        updateLivePrices();
-    }, 5000);
+    setInterval(async () => {
+        try {
+            await refreshData();
+        } catch (error) {
+            console.error('Auto refresh failed:', error);
+        }
+    }, 10000);
 }
 
 function updateLivePrices() {
-    // 模拟价格更新
-    const updates = {
-        sh: 3085 + (Math.random() - 0.5) * 10,
-        sz: 10256 + (Math.random() - 0.5) * 20,
-        cyb: 2085 + (Math.random() - 0.5) * 5
-    };
-    Object.keys(updates).forEach(symbol => {
-        const priceEl = document.getElementById(`${symbol}Price`);
-        if (priceEl) {
-            animatePrice(priceEl, updates[symbol]);
-        }
-    });
+    // no-op: replaced by API polling in startRealTimeUpdates
 }
 
 // ========================================
@@ -570,8 +784,10 @@ function updateLivePrices() {
 async function refreshData() {
     showLoadingState();
     await loadMarketData();
+    await updateCNIndexCharts();
     await loadPredictions();
     await loadSignalData();
+    await updateSignalChart(currentStock, cnSignalPeriod);
     hideLoadingState();
     if (typeof showToast === 'function') {
         showToast('数据已刷新', 'success');
@@ -590,6 +806,17 @@ function bindEvents() {
             await loadSignalData();
         });
     }
+
+    // signal chart period switch
+    document.querySelectorAll('.chart-container-enhanced .chart-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            const controls = e.currentTarget.closest('.chart-controls');
+            controls?.querySelectorAll('.chart-btn').forEach((b) => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            const period = e.currentTarget.dataset.period || '1D';
+            await updateSignalChart(currentStock, period);
+        });
+    });
 
     // 表格排序
     const tableHeaders = document.querySelectorAll('.stock-table th');
@@ -622,15 +849,38 @@ function sortTable(columnIndex) {
 // ========================================
 // 辅助函数
 // ========================================
-function generateSparklineData(min, max) {
+function generateSparklineData(min, max, points = 20) {
     const data = [];
     let current = (min + max) / 2;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < points; i++) {
         const change = (Math.random() - 0.45) * (max - min) * 0.05;
         current = Math.max(min, Math.min(max, current + change));
         data.push(current);
     }
     return data;
+}
+
+function generateTimeLabels(count, unit = 'hour') {
+    const labels = [];
+    const now = new Date();
+    for (let i = count - 1; i >= 0; i--) {
+        const time = new Date(now);
+        switch (unit) {
+            case 'hour':
+                time.setHours(time.getHours() - i);
+                labels.push(`${String(time.getHours()).padStart(2, '0')}:00`);
+                break;
+            case 'month':
+                time.setMonth(time.getMonth() - i);
+                labels.push(time.toLocaleDateString('zh-CN', { month: 'short' }));
+                break;
+            default:
+                time.setDate(time.getDate() - i);
+                labels.push(time.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }));
+                break;
+        }
+    }
+    return labels;
 }
 
 // 导出刷新函数

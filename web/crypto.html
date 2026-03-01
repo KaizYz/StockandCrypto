@@ -4,8 +4,8 @@
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0">
  <title>加密货币预测 - StockandCrypto</title>
- <link rel="stylesheet" href="css/style.css">
- <link rel="stylesheet" href="css/components.css">
+ <link rel="stylesheet" href="css/style.css?v=20260301d">
+ <link rel="stylesheet" href="css/components.css?v=20260301d">
  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -323,6 +323,145 @@
  </div>
  </div>
  </section>
+
+ <!-- Deep Session Forecast (Parity Layer with 8501 Crypto richness) -->
+ <section class="section-padding">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">交易时段深度分析</h2>
+ <p class="section-desc">补齐 8501 Crypto 页核心模块：决策卡、对照、热力图、未来路径、日线与 TopN。</p>
+ </div>
+
+ <div class="session-panel" id="scControlPanel">
+ <div class="session-panel-header">
+ <h3 class="session-panel-title">控制参数（深度分析）</h3>
+ <button class="refresh-btn" id="scRefreshBtn" type="button">刷新并重算</button>
+ </div>
+ <div class="session-controls-grid">
+ <label class="session-field"><span>币种</span><select id="scSymbol"></select></label>
+ <label class="session-field"><span>数据源</span><select id="scExchange"></select></label>
+ <label class="session-field"><span>市场类型</span><select id="scMarketType"></select></label>
+ <label class="session-field"><span>模式</span><select id="scMode"></select></label>
+ <label class="session-field"><span>小时周期</span><select id="scHorizon"></select></label>
+ <label class="session-field"><span>未来 N 天</span><input id="scLookforward" type="number" min="7" max="30" step="1"></label>
+ <label class="session-field"><span>风险偏好</span><select id="scRisk"></select></label>
+ <label class="session-field"><span>榜单排序</span><select id="scRank"></select></label>
+ <label class="session-field"><span>Top N</span><input id="scTopN" type="number" min="3" max="12" step="1"></label>
+ <label class="session-field"><span>成本(bps)</span><input id="scCost" type="number" min="0" max="200" step="0.5"></label>
+ </div>
+ <label class="session-check">
+ <input id="scCompare" type="checkbox" checked>
+ <span>显示 Forecast vs Seasonality 对照</span>
+ </label>
+ </div>
+
+ <div class="session-meta" id="scMeta">
+ <div class="session-meta-line" id="scMetaLine">加载中...</div>
+ <details class="session-meta-details">
+ <summary>数据 & 模型信息</summary>
+ <pre id="scDataInfo"></pre>
+ </details>
+ </div>
+ </div>
+ </section>
+
+ <section class="section-padding section-dark" style="padding-top: 0;">
+ <div class="container">
+ <div class="decision-card" id="scDecisionCard"></div>
+ <div class="decision-metrics" id="scTradePlanMetrics"></div>
+ </div>
+ </section>
+
+ <section class="section-padding" style="padding-top: 0;">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">时段信号</h2>
+ <p class="section-desc">亚盘 / 欧盘 / 美盘的方向概率、目标变化、风险等级。</p>
+ </div>
+ <div class="sessions-grid" id="scSessionCards"></div>
+ </div>
+ </section>
+
+ <section class="section-padding section-dark" style="padding-top: 0;">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">Forecast vs Seasonality 对照</h2>
+ <p class="section-desc">重点关注 Δp_up 与 Δq50 的偏离。</p>
+ </div>
+ <div class="table-shell" id="scCompareWrap"></div>
+ </div>
+ </section>
+
+ <section class="section-padding" style="padding-top: 0;">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">24h 热力图</h2>
+ <p class="section-desc">从每个小时起算未来窗口的概率与波动。</p>
+ </div>
+ <div class="heatmap-panel">
+ <div class="heatmap-tabs" id="scHeatmapTabs">
+ <button class="heatmap-tab active" data-metric="p_up" type="button">上涨概率</button>
+ <button class="heatmap-tab" data-metric="p_down" type="button">下跌概率</button>
+ <button class="heatmap-tab" data-metric="volatility_score" type="button">波动强度</button>
+ <button class="heatmap-tab" data-metric="confidence_score" type="button">置信度</button>
+ </div>
+ <div class="heatmap-grid" id="scHeatmapGrid"></div>
+ </div>
+ </div>
+ </section>
+
+ <section class="section-padding section-dark" style="padding-top: 0;">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">模拟路径（未来）</h2>
+ <p class="section-desc">按 q10 / q50 / q90 生成的未来价格带。</p>
+ </div>
+ <div class="chart-container-enhanced">
+ <div class="sim-layout">
+ <div class="chart-wrapper sim-chart-wrapper" style="height: 320px;">
+ <canvas id="scSimChart"></canvas>
+ </div>
+ <aside class="sim-side-panel" id="scSimStats" aria-live="polite">
+ <div class="sim-side-empty">等待预测数据...</div>
+ </aside>
+ </div>
+ </div>
+ </div>
+ </section>
+
+ <section class="section-padding" style="padding-top: 0;">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">未来 N 天日线预测</h2>
+ <p class="section-desc">按日期查看方向、目标价、风险、置信度。</p>
+ </div>
+ <div class="table-shell" id="scDailyWrap"></div>
+ </div>
+ </section>
+
+ <section class="section-padding section-dark" style="padding-top: 0;">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">TopN 榜单</h2>
+ <p class="section-desc">按 Edge / Risk / 概率对小时级与日线级机会排序。</p>
+ </div>
+ <div class="ranking-grid">
+ <div class="ranking-col">
+ <h3>小时级 TopN</h3>
+ <div class="table-shell" id="scTopHourlyUp"></div>
+ <div class="table-shell" id="scTopHourlyDown"></div>
+ <div class="table-shell" id="scTopHourlyVol"></div>
+ </div>
+ <div class="ranking-col">
+ <h3>日线级 TopN</h3>
+ <div class="table-shell" id="scTopDailyUp"></div>
+ <div class="table-shell" id="scTopDailyDown"></div>
+ <div class="table-shell" id="scTopDailyVol"></div>
+ </div>
+ </div>
+ <ul class="session-notes" id="scNotes"></ul>
+ </div>
+ </section>
  </main>
 
  <!-- Footer -->
@@ -338,8 +477,11 @@
  </div>
  </footer>
 
- <script src="js/api.js"></script>
- <script src="js/main.js"></script>
- <script src="js/crypto.js"></script>
+ <div id="toast" class="toast"></div>
+
+ <script src="js/api.js?v=20260301d"></script>
+ <script src="js/main.js?v=20260301d"></script>
+ <script src="js/crypto.js?v=20260301d"></script>
+ <script src="js/session-crypto.js?v=20260301d"></script>
 </body>
 </html>

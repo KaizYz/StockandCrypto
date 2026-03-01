@@ -7,8 +7,40 @@ document.addEventListener('DOMContentLoaded', function() {
 
 let indexCharts = {};
 let usTrendChart = null;
+let usSignalChart = null;
 let usStocksData = [];
 let currentStock = 'AAPL';
+let usSignalPeriod = '1D';
+let usTrendPeriod = '1D';
+
+function _safeNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+function _formatChartLabel(ts, interval = 'daily') {
+    if (!ts) return '';
+    const dt = new Date(ts);
+    if (Number.isNaN(dt.getTime())) return '';
+    if (interval === 'hourly') {
+        return `${String(dt.getHours()).padStart(2, '0')}:00`;
+    }
+    return dt.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+}
+
+function _buildSeriesFromBars(bars, interval) {
+    const rows = Array.isArray(bars) ? bars : [];
+    const cleaned = rows
+        .map((row) => ({
+            label: _formatChartLabel(row.timestamp, interval),
+            close: _safeNumber(row.close),
+        }))
+        .filter((row) => row.label && row.close !== null);
+    return {
+        labels: cleaned.map((x) => x.label),
+        values: cleaned.map((x) => x.close),
+    };
+}
 
 // ========================================
 // 初始化
@@ -16,30 +48,36 @@ let currentStock = 'AAPL';
 async function initUSEquityPage() {
     // 显示加载状态
     showLoadingState();
+    try {
+        // 加载市场数据
+        await loadMarketData();
 
-    // 加载市场数据
-    await loadMarketData();
+        // 初始化图表
+        initCharts();
 
-    // 初始化图表
-    initCharts();
+        // 加载预测数据
+        await loadPredictions();
 
-    // 加载预测数据
-    await loadPredictions();
+        // 加载当前选择的股票信号
+        await loadSignalData();
 
-    // 加载当前选择的股票信号
-    await loadSignalData();
+        // 加载股票列表
+        await loadSymbols();
 
-    // 加载股票列表
-    await loadSymbols();
+        // 启动实时更新
+        startRealTimeUpdates();
 
-    // 启动实时更新
-    startRealTimeUpdates();
-
-    // 绑定事件
-    bindEvents();
-
-    // 隐藏加载状态
-    hideLoadingState();
+        // 绑定事件
+        bindEvents();
+    } catch (error) {
+        console.error('Failed to initialize US equity page:', error);
+        if (typeof showToast === 'function') {
+            showToast(`页面初始化失败: ${error.message || '未知错误'}`, 'error');
+        }
+    } finally {
+        // 隐藏加载状态
+        hideLoadingState();
+    }
 }
 
 // ========================================
@@ -122,6 +160,7 @@ async function loadSignalData() {
         const signal = await api.us.getPrediction(symbol);
         if (signal) {
             updateSignalCard(signal);
+            await updateSignalChart(symbol, usSignalPeriod);
         } else {
             useMockSignalData(symbol);
         }
@@ -139,6 +178,26 @@ async function loadSymbols() {
         const symbols = await api.us.getSymbols();
         if (symbols && symbols.length > 0) {
             usStocksData = symbols;
+            const selector = document.getElementById('stockSelector');
+            if (selector) {
+                const previous = currentStock;
+                selector.innerHTML = '';
+                symbols.forEach((item) => {
+                    const symbol = String(item.symbol || '').toUpperCase();
+                    if (!symbol) return;
+                    const option = document.createElement('option');
+                    option.value = symbol;
+                    option.textContent = `${item.name || symbol} (${symbol})`;
+                    selector.appendChild(option);
+                });
+                if ([...selector.options].some((o) => o.value === previous)) {
+                    selector.value = previous;
+                    currentStock = previous;
+                } else if (selector.options.length > 0) {
+                    selector.selectedIndex = 0;
+                    currentStock = selector.value;
+                }
+            }
         }
     } catch (error) {
         console.error('Failed to load symbols:', error);
@@ -228,6 +287,7 @@ function useMockSignalData(symbol) {
     };
 
     updateSignalCard(mockSignal);
+    updateSignalChart(symbol, usSignalPeriod).catch(() => {});
 }
 
 // ========================================
@@ -263,13 +323,15 @@ function updateSignalCard(signal) {
 
     // 更新价格
     const currentPriceEl = document.getElementById('currentPrice');
-    if (currentPriceEl && signal.current_price) {
-        currentPriceEl.textContent = `$${signal.current_price.toFixed(2)}`;
+    const currentPrice = _safeNumber(signal.current_price);
+    if (currentPriceEl && currentPrice !== null) {
+        currentPriceEl.textContent = `$${currentPrice.toFixed(2)}`;
     }
 
     const targetPriceEl = document.getElementById('targetPrice');
-    if (targetPriceEl && signal.target_price) {
-        targetPriceEl.textContent = `$${signal.target_price.toFixed(2)}`;
+    const targetPrice = _safeNumber(signal.target_price ?? signal.target_price_q50);
+    if (targetPriceEl && targetPrice !== null) {
+        targetPriceEl.textContent = `$${targetPrice.toFixed(2)}`;
     }
 
     // 更新概率
@@ -295,7 +357,8 @@ function updateSignalCard(signal) {
     }
 
     // 更新置信度
-    const confidence = signal.confidence || signal.confidence_score || 60;
+    let confidence = signal.confidence ?? signal.confidence_score ?? 60;
+    if (confidence <= 1) confidence = confidence * 100;
     const confidenceBar = document.getElementById('confidenceBar');
     const confidenceValue = document.getElementById('confidenceValue');
     if (confidenceBar) {
@@ -452,20 +515,26 @@ function updateStockTable(data) {
 // 从API更新预测数据
 // ========================================
 function updatePredictionsFromAPI(predictions) {
-    predictions.forEach(pred => {
-        const symbol = pred.symbol?.toLowerCase();
+    predictions.forEach((pred) => {
+        const symbol = String(pred.symbol || '').toLowerCase();
+        if (!symbol) return;
         const priceEl = document.getElementById(`${symbol}Price`);
         const changeEl = document.getElementById(`${symbol}Change`);
         const targetEl = document.getElementById(`${symbol}Target`);
-        if (priceEl && pred.current_price) {
-            priceEl.textContent = `$${pred.current_price.toFixed(2)}`;
+
+        const currentPrice = _safeNumber(pred.current_price);
+        const changePercent = _safeNumber(pred.change_percent ?? ((pred.predicted_change_pct ?? 0) * 100));
+        const targetPrice = _safeNumber(pred.target_price ?? pred.predicted_price);
+
+        if (priceEl && currentPrice !== null) {
+            priceEl.textContent = `${currentPrice.toFixed(2)}`;
         }
-        if (changeEl && pred.change_percent !== undefined) {
-            changeEl.textContent = `${pred.change_percent >= 0 ? '+' : ''}${pred.change_percent.toFixed(2)}%`;
-            changeEl.className = pred.change_percent >= 0 ? 'positive' : 'negative';
+        if (changeEl && changePercent !== null) {
+            changeEl.textContent = `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`;
+            changeEl.className = changePercent >= 0 ? 'positive' : 'negative';
         }
-        if (targetEl && pred.target_price) {
-            targetEl.textContent = `$${pred.target_price}`;
+        if (targetEl && targetPrice !== null) {
+            targetEl.textContent = `${targetPrice.toFixed(2)}`;
         }
     });
 }
@@ -497,12 +566,18 @@ function initCharts() {
     Chart.defaults.font.family = 'Inter, sans-serif';
 
     // 创建指数图表
-    createIndexChart('djiChart', generateSparklineData(38000, 39000), '#00d4aa');
-    createIndexChart('ixicChart', generateSparklineData(16000, 16200), '#d4af37');
-    createIndexChart('spxChart', generateSparklineData(5100, 5150), '#ff6b6b');
+    createIndexChart('djiChart', [], '#00d4aa');
+    createIndexChart('ixicChart', [], '#d4af37');
+    createIndexChart('spxChart', [], '#ff6b6b');
+
+    // 创建个股信号走势图
+    createSignalChart();
 
     // 创建趋势图
     createTrendChart();
+    updateUSIndexCharts().catch((error) => {
+        console.error('Failed to initialize US index history charts:', error);
+    });
 }
 
 function createIndexChart(canvasId, data, color) {
@@ -510,6 +585,7 @@ function createIndexChart(canvasId, data, color) {
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
+    const values = Array.isArray(data) ? data : [];
     const gradient = ctx.createLinearGradient(0, 0, 0, 80);
     gradient.addColorStop(0, color + '40');
     gradient.addColorStop(1, color + '00');
@@ -517,9 +593,9 @@ function createIndexChart(canvasId, data, color) {
     indexCharts[canvasId] = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: data.map((_, i) => i),
+            labels: values.map((_, i) => i),
             datasets: [{
-                data: data,
+                data: values,
                 borderColor: color,
                 backgroundColor: gradient,
                 fill: true,
@@ -543,12 +619,144 @@ function createIndexChart(canvasId, data, color) {
     });
 }
 
+async function updateUSIndexCharts() {
+    const defs = [
+        { canvasId: 'djiChart', symbol: 'DJI' },
+        { canvasId: 'ixicChart', symbol: 'IXIC' },
+        { canvasId: 'spxChart', symbol: 'SPX' },
+    ];
+
+    await Promise.all(defs.map(async ({ canvasId, symbol }) => {
+        const chart = indexCharts[canvasId];
+        if (!chart) return;
+        try {
+            const history = await api.market.getHistory(symbol, {
+                period: '1D',
+                interval: 'hourly',
+                limit: 24,
+            });
+            const series = _buildSeriesFromBars(history?.bars, 'hourly');
+            if (series.values.length > 1) {
+                chart.data.labels = series.labels;
+                chart.data.datasets[0].data = series.values;
+                chart.update('none');
+            }
+        } catch (error) {
+            console.error(`Failed to load US index history for ${symbol}:`, error);
+        }
+    }));
+}
+
+function createSignalChart() {
+    const canvas = document.getElementById('signalChart');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 350);
+    gradient.addColorStop(0, 'rgba(0, 212, 170, 0.2)');
+    gradient.addColorStop(1, 'rgba(0, 212, 170, 0)');
+
+    usSignalChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: '股价',
+                data: [],
+                borderColor: '#00d4aa',
+                backgroundColor: gradient,
+                fill: true,
+                tension: 0.35,
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: '#00d4aa'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(10, 15, 26, 0.95)',
+                    titleColor: '#ffffff',
+                    bodyColor: '#00d4aa',
+                    borderColor: 'rgba(0, 212, 170, 0.3)',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    padding: 12,
+                    callbacks: {
+                        label: (ctx) => `$${Number(ctx.parsed.y).toFixed(2)}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#8892a0', maxTicksLimit: 8 }
+                },
+                y: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: {
+                        color: '#8892a0',
+                        callback: (value) => `$${Number(value).toFixed(0)}`
+                    }
+                }
+            },
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            }
+        }
+    });
+
+    updateSignalChart(currentStock, usSignalPeriod).catch((error) => {
+        console.error('Failed to initialize US signal chart:', error);
+    });
+}
+
+async function updateSignalChart(symbol, period = '1D') {
+    if (!usSignalChart) return;
+    usSignalPeriod = period;
+
+    const periodConfig = {
+        '1D': { interval: 'hourly', limit: 48, labelUnit: 'hour' },
+        '1W': { interval: 'daily', limit: 14, labelUnit: 'day' },
+        '1M': { interval: 'daily', limit: 45, labelUnit: 'day' }
+    };
+    const cfg = periodConfig[String(period || '').toUpperCase()] || periodConfig['1D'];
+
+    let labels = [];
+    let values = [];
+    try {
+        const history = await api.market.getHistory(symbol, {
+            period,
+            interval: cfg.interval,
+            limit: cfg.limit
+        });
+        const series = _buildSeriesFromBars(history?.bars, cfg.interval);
+        labels = series.labels;
+        values = series.values;
+    } catch (error) {
+        console.error(`Failed to load US history for ${symbol}:`, error);
+    }
+
+    if (!labels.length || !values.length) {
+        return;
+    }
+
+    usSignalChart.data.labels = labels;
+    usSignalChart.data.datasets[0].data = values;
+    usSignalChart.update('none');
+}
+
 function createTrendChart() {
     const canvas = document.getElementById('trendChart');
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    const labels = generateTimeLabels(24);
+    const labels = [];
 
     usTrendChart = new Chart(ctx, {
         type: 'line',
@@ -557,7 +765,7 @@ function createTrendChart() {
             datasets: [
                 {
                     label: 'DJI',
-                    data: generateTrendData(38000, 39000, 24),
+                    data: [],
                     borderColor: '#00d4aa',
                     backgroundColor: 'transparent',
                     tension: 0.4,
@@ -566,7 +774,7 @@ function createTrendChart() {
                 },
                 {
                     label: 'IXIC',
-                    data: generateTrendData(16000, 16200, 24),
+                    data: [],
                     borderColor: '#d4af37',
                     backgroundColor: 'transparent',
                     tension: 0.4,
@@ -575,7 +783,7 @@ function createTrendChart() {
                 },
                 {
                     label: 'SPX',
-                    data: generateTrendData(5100, 5150, 24),
+                    data: [],
                     borderColor: '#ff6b6b',
                     backgroundColor: 'transparent',
                     tension: 0.4,
@@ -627,30 +835,27 @@ function createTrendChart() {
             }
         }
     });
+
+    updateChartPeriod(usTrendPeriod).catch((error) => {
+        console.error('Failed to initialize US trend chart:', error);
+    });
 }
 
 // ========================================
 // 实时更新
 // ========================================
 function startRealTimeUpdates() {
-    setInterval(() => {
-        updateLivePrices();
-    }, 5000);
+    setInterval(async () => {
+        try {
+            await refreshData();
+        } catch (error) {
+            console.error('Auto refresh failed:', error);
+        }
+    }, 10000);
 }
 
 function updateLivePrices() {
-    // 模拟价格更新
-    const updates = {
-        dji: 38675 + (Math.random() - 0.5) * 100,
-        ixic: 16156 + (Math.random() - 0.5) * 50,
-        spx: 5123 + (Math.random() - 0.5) * 20
-    };
-    Object.keys(updates).forEach(symbol => {
-        const priceEl = document.getElementById(`${symbol}Price`);
-        if (priceEl) {
-            animatePrice(priceEl, updates[symbol]);
-        }
-    });
+    // no-op: replaced by API polling in startRealTimeUpdates
 }
 
 // ========================================
@@ -659,8 +864,11 @@ function updateLivePrices() {
 async function refreshData() {
     showLoadingState();
     await loadMarketData();
+    await updateUSIndexCharts();
     await loadPredictions();
     await loadSignalData();
+    await updateSignalChart(currentStock, usSignalPeriod);
+    await updateChartPeriod(usTrendPeriod);
     hideLoadingState();
     if (typeof showToast === 'function') {
         showToast('数据已刷新', 'success');
@@ -681,12 +889,23 @@ function bindEvents() {
     }
 
     // 图表周期切换
-    document.querySelectorAll('.chart-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.chart-btn').forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            const period = e.target.dataset.period;
-            updateChartPeriod(period);
+    document.querySelectorAll('.chart-container-enhanced .chart-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            const controls = e.currentTarget.closest('.chart-controls');
+            controls?.querySelectorAll('.chart-btn').forEach((b) => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            const period = e.currentTarget.dataset.period || '1D';
+            await updateSignalChart(currentStock, period);
+        });
+    });
+
+    document.querySelectorAll('.chart-container .chart-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            const controls = e.currentTarget.closest('.chart-controls');
+            controls?.querySelectorAll('.chart-btn').forEach((b) => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            const period = e.currentTarget.dataset.period || '1D';
+            await updateChartPeriod(period);
         });
     });
 
@@ -697,22 +916,47 @@ function bindEvents() {
     }
 }
 
-function updateChartPeriod(period) {
+async function updateChartPeriod(period) {
     if (!usTrendChart) return;
+    usTrendPeriod = period;
 
     const periodConfig = {
-        '1D': { points: 24, label: 'hour' },
-        '1W': { points: 7, label: 'day' },
-        '1M': { points: 30, label: 'day' },
-        '1Y': { points: 12, label: 'month' }
+        '1D': { interval: 'hourly', limit: 24, labelUnit: 'hour' },
+        '1W': { interval: 'daily', limit: 7, labelUnit: 'day' },
+        '1M': { interval: 'daily', limit: 30, labelUnit: 'day' },
+        '1Y': { interval: 'daily', limit: 180, labelUnit: 'month' }
     };
+    const cfg = periodConfig[String(period || '').toUpperCase()] || periodConfig['1D'];
 
-    const config = periodConfig[period] || periodConfig['1D'];
-    const labels = generateTimeLabels(config.points, config.label);
-    usTrendChart.data.labels = labels;
-    usTrendChart.data.datasets[0].data = generateTrendData(38000, 39000, config.points);
-    usTrendChart.data.datasets[1].data = generateTrendData(16000, 16200, config.points);
-    usTrendChart.data.datasets[2].data = generateTrendData(5100, 5150, config.points);
+    const symbols = ['DJI', 'IXIC', 'SPX'];
+
+    const results = await Promise.all(symbols.map(async (symbol) => {
+        try {
+            const history = await api.market.getHistory(symbol, {
+                period,
+                interval: cfg.interval,
+                limit: cfg.limit
+            });
+            const series = _buildSeriesFromBars(history?.bars, cfg.interval);
+            if (series.labels.length > 1 && series.values.length > 1) {
+                return series;
+            }
+        } catch (error) {
+            console.error(`Failed to load US index history for ${symbol}:`, error);
+        }
+        return null;
+    }));
+
+    if (results.some((x) => !x)) {
+        return;
+    }
+
+    const casted = results;
+    const minLen = Math.max(2, Math.min(...casted.map((x) => x.values.length)));
+    usTrendChart.data.labels = casted[0].labels.slice(-minLen);
+    usTrendChart.data.datasets[0].data = casted[0].values.slice(-minLen);
+    usTrendChart.data.datasets[1].data = casted[1].values.slice(-minLen);
+    usTrendChart.data.datasets[2].data = casted[2].values.slice(-minLen);
     usTrendChart.update();
 }
 
