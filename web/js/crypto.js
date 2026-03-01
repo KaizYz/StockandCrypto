@@ -1,5 +1,5 @@
 // ========================================
-// StockandCrypto - Crypto é¡µé¢è„šæœ¬
+// StockandCrypto - Crypto 页面脚本
 // ========================================
 document.addEventListener('DOMContentLoaded', function() {
  initCryptoPage();
@@ -53,39 +53,39 @@ function _buildSeriesFromBars(bars, interval) {
 }
 
 // ========================================
-// åˆå§‹åŒ–
+// 初始化
 // ========================================
 async function initCryptoPage() {
- // æ˜¾ç¤ºåŠ è½½çŠ¶æ€
+ // 显示加载状态
  showLoadingState();
  try {
- // åŠ è½½å¸‚åœºæ•°æ®
+ // 加载市场数据
  await loadMarketData();
- // åˆå§‹åŒ–å›¾è¡¨
+ // 初始化图表
  initCharts();
- // åŠ è½½é¢„æµ‹æ•°æ®
+ // 加载预测数据
  await loadPredictions();
- // åŠ è½½å½“å‰é€‰æ‹©çš„å¸ç§ä¿¡å·
+ // 加载当前选择的币种信号
  await loadSignalData();
- // åŠ è½½å¸ç§åˆ—è¡¨
+ // 加载币种列表
  await loadSymbols();
- // å¯åŠ¨å®žæ—¶æ›´æ–°
+ // 启动实时更新
  startRealTimeUpdates();
- // ç»‘å®šäº‹ä»¶
+ // 绑定事件
  bindEvents();
  } catch (error) {
  console.error('Failed to initialize crypto page:', error);
  if (typeof showToast === 'function') {
- showToast(`é¡µé¢åˆå§‹åŒ–å¤±è´¥: ${error.message || 'æœªçŸ¥é”™è¯¯'}`, 'error');
+ showToast(`页面初始化失败: ${error.message || '未知错误'}`, 'error');
  }
  } finally {
- // éšè—åŠ è½½çŠ¶æ€
+ // 隐藏加载状态
  hideLoadingState();
  }
 }
 
 // ========================================
-// æ˜¾ç¤º/éšè—åŠ è½½çŠ¶æ€
+// 显示/隐藏加载状态
 // ========================================
 function showLoadingState() {
  const grid = document.getElementById('cryptoGrid');
@@ -112,19 +112,19 @@ function hideLoadingState() {
 function showError(message) {
  const grid = document.getElementById('cryptoGrid');
  if (grid) {
- grid.innerHTML = `<div class="error-message"><p>âŒ ${message}</p><button onclick="initCryptoPage()" class="btn btn-secondary">é‡è¯•</button></div>`;
+ grid.innerHTML = `<div class="error-message"><p>❌ ${message}</p><button onclick="initCryptoPage()" class="btn btn-secondary">重试</button></div>`;
  }
 }
 
-function showEmpty(message = 'æš‚æ— æ•°æ®') {
+function showEmpty(message = '暂无数据') {
  const grid = document.getElementById('cryptoGrid');
  if (grid) {
- grid.innerHTML = `<div class="empty-state"><p>ðŸ“­ ${message}</p></div>`;
+ grid.innerHTML = `<div class="empty-state"><p>📭 ${message}</p></div>`;
  }
 }
 
 // ========================================
-// åŠ è½½å¸‚åœºæ•°æ®
+// 加载市场数据
 // ========================================
 async function loadMarketData() {
  try {
@@ -141,7 +141,7 @@ async function loadMarketData() {
 }
 
 // ========================================
-// åŠ è½½é¢„æµ‹æ•°æ®
+// 加载预测数据
 // ========================================
 async function loadPredictions() {
  try {
@@ -151,12 +151,12 @@ async function loadPredictions() {
  }
  } catch (error) {
  console.error('Failed to load predictions:', error);
- // ç»§ç»­ä½¿ç”¨æ¨¡æ‹Ÿæ•°æ®
+ // 继续使用模拟数据
  }
 }
 
 // ========================================
-// åŠ è½½å•ä¸ªå¸ç§ä¿¡å·æ•°æ®
+// 加载单个币种信号数据
 // ========================================
 async function loadSignalData() {
  try {
@@ -175,7 +175,7 @@ async function loadSignalData() {
 }
 
 // ========================================
-// åŠ è½½å¸ç§åˆ—è¡¨
+// 加载币种列表
 // ========================================
 async function loadSymbols() {
  try {
@@ -190,7 +190,7 @@ async function loadSymbols() {
 }
 
 // ========================================
-// ä½¿ç”¨æ¨¡æ‹Ÿæ•°æ®
+// 使用模拟数据
 // ========================================
 function useMockData() {
  const mockData = {
@@ -230,7 +230,7 @@ function useMockData() {
 }
 
 // ========================================
-// ä½¿ç”¨æ¨¡æ‹Ÿä¿¡å·æ•°æ®
+// 使用模拟信号数据
 // ========================================
 function useMockSignalData(symbol) {
  const mockSignals = {
@@ -337,16 +337,16 @@ function useMockSignalData(symbol) {
 }
 
 // ========================================
-// æ›´æ–°ä¿¡å·å¡ç‰‡
+// 更新信号卡片
 // ========================================
 function updateSignalCard(signal) {
- // æ›´æ–°å¸ç§
+ // 更新币种
  const symbolEl = document.getElementById('signalSymbol');
  if (symbolEl) {
  symbolEl.textContent = signal.symbol || currentSymbol;
  }
  
- // æ›´æ–°ä»£ç æ˜¾ç¤º
+ // 更新代码显示
  const codeEl = document.getElementById('signalCode');
  if (codeEl) {
  const symbolNames = {
@@ -360,14 +360,14 @@ function updateSignalCard(signal) {
  codeEl.textContent = symbolNames[signal.symbol] || signal.symbol;
  }
  
- // æ›´æ–°æ—¶é—´
+ // 更新时间
  const timeEl = document.getElementById('signalTime');
  if (timeEl) {
  const now = new Date();
- timeEl.textContent = `æ›´æ–°äºŽ ${now.toLocaleTimeString('zh-CN')}`;
+ timeEl.textContent = `更新于 ${now.toLocaleTimeString('zh-CN')}`;
  }
  
- // æ›´æ–°ç­–ç•¥åŠ¨ä½œ
+ // 更新策略动作
  const actionEl = document.getElementById('signalAction');
  if (actionEl) {
  const action = signal.action || signal.policy_action || 'Flat';
@@ -375,7 +375,7 @@ function updateSignalCard(signal) {
  actionEl.className = 'action-value ' + action.toLowerCase();
  }
  
- // æ›´æ–°ä»·æ ¼
+ // 更新价格
  const currentPriceEl = document.getElementById('currentPrice');
  const currentPrice = _safeNumber(signal.current_price);
  if (currentPriceEl && currentPrice !== null) {
@@ -388,7 +388,7 @@ function updateSignalCard(signal) {
  targetPriceEl.textContent = `$${targetPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
  }
  
- // æ›´æ–°æ¦‚çŽ‡
+ // 更新概率
  const pUpValue = signal.p_up || 0.5;
  const pDownValue = signal.p_down || 0.5;
  
@@ -410,7 +410,7 @@ function updateSignalCard(signal) {
  pDownValueEl.textContent = `${(pDownValue * 100).toFixed(1)}%`;
  }
  
- // æ›´æ–°ç½®ä¿¡åº¦
+ // 更新置信度
  let confidence = signal.confidence ?? signal.confidence_score ?? 60;
  if (confidence <= 1) confidence = confidence * 100;
  const confidenceBar = document.getElementById('confidenceBar');
@@ -422,7 +422,7 @@ function updateSignalCard(signal) {
  confidenceValue.textContent = `${confidence.toFixed(0)}%`;
  }
  
- // æ›´æ–°è¯¦æƒ…
+ // 更新详情
  const q50ChangeEl = document.getElementById('q50Change');
  if (q50ChangeEl && signal.q50_change_pct !== undefined) {
  const change = signal.q50_change_pct;
@@ -462,54 +462,54 @@ function updateSignalCard(signal) {
 }
 
 // ========================================
-// æ ¼å¼åŒ–å‡½æ•°
+// 格式化函数
 // ========================================
 function _formatAction(action) {
  const actionMap = {
- 'Long': 'åšå¤š',
- 'Short': 'åšç©º',
- 'Flat': 'è§‚æœ›',
- 'long': 'åšå¤š',
- 'short': 'åšç©º',
- 'flat': 'è§‚æœ›'
+ 'Long': '做多',
+ 'Short': '做空',
+ 'Flat': '观望',
+ 'long': '做多',
+ 'short': '做空',
+ 'flat': '观望'
  };
  return actionMap[action] || action;
 }
 
 function _signalStrengthText(strength) {
  const strengthMap = {
- 'Weak': 'å¼±ä¿¡å·',
- 'Medium': 'ä¸­ä¿¡å·',
- 'Strong': 'å¼ºä¿¡å·',
- 'weak': 'å¼±ä¿¡å·',
- 'medium': 'ä¸­ä¿¡å·',
- 'strong': 'å¼ºä¿¡å·'
+ 'Weak': '弱信号',
+ 'Medium': '中信号',
+ 'Strong': '强信号',
+ 'weak': '弱信号',
+ 'medium': '中信号',
+ 'strong': '强信号'
  };
  return strengthMap[strength] || strength;
 }
 
 function _trendText(trend) {
  const trendMap = {
- 'bullish': 'çœ‹æ¶¨',
- 'bearish': 'çœ‹è·Œ',
- 'neutral': 'éœ‡è¡',
- 'bull': 'çœ‹æ¶¨',
- 'bear': 'çœ‹è·Œ'
+ 'bullish': '看涨',
+ 'bearish': '看跌',
+ 'neutral': '震荡',
+ 'bull': '看涨',
+ 'bear': '看跌'
  };
  return trendMap[trend] || trend;
 }
 
 function _riskText(risk) {
  const riskMap = {
- 'low': 'ä½Žé£Žé™©',
- 'medium': 'ä¸­é£Žé™©',
- 'high': 'é«˜é£Žé™©'
+ 'low': '低风险',
+ 'medium': '中风险',
+ 'high': '高风险'
  };
  return riskMap[risk] || risk;
 }
 
 // ========================================
-// æ›´æ–°ä»·æ ¼å¡ç‰‡
+// 更新价格卡片
 // ========================================
 function updatePriceCards(data) {
  // BTC
@@ -546,10 +546,10 @@ function updateCryptoCard(symbol, data) {
 }
 
 // ========================================
-// æ›´æ–°é¢„æµ‹æ•°æ®
+// 更新预测数据
 // ========================================
 function updatePredictions(data) {
- // BTC é¢„æµ‹
+ // BTC 预测
  if (data.btc) {
  const btcPredicted = document.getElementById('btcPredicted');
  const btcSupport = document.getElementById('btcSupport');
@@ -558,7 +558,7 @@ function updatePredictions(data) {
  if (btcSupport) btcSupport.textContent = `$${data.btc.support.toLocaleString()}`;
  if (btcResistance) btcResistance.textContent = `$${data.btc.resistance.toLocaleString()}`;
  }
- // ETH é¢„æµ‹
+ // ETH 预测
  if (data.eth) {
  const ethPredicted = document.getElementById('ethPredicted');
  const ethSupport = document.getElementById('ethSupport');
@@ -567,7 +567,7 @@ function updatePredictions(data) {
  if (ethSupport) ethSupport.textContent = `$${data.eth.support.toLocaleString()}`;
  if (ethResistance) ethResistance.textContent = `$${data.eth.resistance.toLocaleString()}`;
  }
- // SOL é¢„æµ‹
+ // SOL 预测
  if (data.sol) {
  const solPredicted = document.getElementById('solPredicted');
  const solSupport = document.getElementById('solSupport');
@@ -579,7 +579,7 @@ function updatePredictions(data) {
 }
 
 // ========================================
-// ä»ŽAPIæ›´æ–°é¢„æµ‹æ•°æ®
+// 从API更新预测数据
 // ========================================
 function updatePredictionsFromAPI(predictions) {
  predictions.forEach((pred) => {
@@ -603,7 +603,7 @@ function updatePredictionsFromAPI(predictions) {
 }
 
 // ========================================
-// æ›´æ–°å¸ç§åˆ—è¡¨
+// 更新币种列表
 // ========================================
 function updateSymbolsList(symbols) {
  const selector = document.getElementById('symbolSelector');
@@ -629,7 +629,7 @@ function updateSymbolsList(symbols) {
 }
 
 // ========================================
-// ä»·æ ¼åŠ¨ç”»
+// 价格动画
 // ========================================
 function animatePrice(element, newPrice) {
  const currentPrice = parseFloat(element.textContent.replace(/,/g, '')) || 0;
@@ -647,20 +647,20 @@ function animatePrice(element, newPrice) {
 }
 
 // ========================================
-// åˆå§‹åŒ–å›¾è¡¨
+// 初始化图表
 // ========================================
 function initCharts() {
- // Chart.js é…ç½®
+ // Chart.js 配置
  Chart.defaults.color = '#8892a0';
  Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.05)';
  Chart.defaults.font.family = 'Inter, sans-serif';
- // åˆ›å»º Sparkline å›¾è¡¨
+ // 创建 Sparkline 图表
  createSparkline('btcChart', [], '#00d4aa');
  createSparkline('ethChart', [], '#d4af37');
  createSparkline('solChart', [], '#ff6b6b');
- // åˆ›å»ºä¿¡å·å›¾è¡¨
+ // 创建信号图表
  createSignalChart();
- // åˆ›å»ºè¶‹åŠ¿å›¾è¡¨
+ // 创建趋势图表
  createTrendChart();
  updateSparklineCharts().catch((error) => {
  console.error('Failed to initialize crypto sparkline history:', error);
@@ -668,7 +668,7 @@ function initCharts() {
 }
 
 // ========================================
-// åˆ›å»ºä¿¡å·å›¾è¡¨
+// 创建信号图表
 // ========================================
 function createSignalChart() {
  const canvas = document.getElementById('signalChart');
@@ -684,7 +684,7 @@ function createSignalChart() {
  data: {
  labels: [],
  datasets: [{
- label: 'ä»·æ ¼',
+ label: '价格',
  data: [],
  borderColor: '#00d4aa',
  backgroundColor: gradient,
@@ -740,7 +740,7 @@ function createSignalChart() {
 }
 
 // ========================================
-// æ›´æ–°ä¿¡å·å›¾è¡¨
+// 更新信号图表
 // ========================================
 async function updateSignalChart(symbol, period = '1D') {
  if (!signalChart) return;
@@ -800,7 +800,7 @@ function createSparkline(canvasId, data, color) {
  if (!canvas) return;
  const ctx = canvas.getContext('2d');
  const values = Array.isArray(data) ? data : [];
- // åˆ›å»ºæ¸å˜
+ // 创建渐变
  const gradient = ctx.createLinearGradient(0, 0, 0, 100);
  gradient.addColorStop(0, color + '40');
  gradient.addColorStop(1, color + '00');
@@ -962,7 +962,7 @@ function createTrendChart() {
 }
 
 // ========================================
-// å®žæ—¶æ›´æ–°
+// 实时更新
 // ========================================
 function startRealTimeUpdates() {
  setInterval(async () => {
@@ -979,7 +979,7 @@ function updateLivePrices() {
 }
 
 // ========================================
-// åˆ·æ–°æ•°æ®
+// 刷新数据
 // ========================================
 async function refreshData(options = {}) {
  const silent = Boolean(options && options.silent);
@@ -995,15 +995,15 @@ async function refreshData(options = {}) {
  hideLoadingState();
  }
  if (!silent && typeof showToast === 'function') {
- showToast('æ•°æ®å·²åˆ·æ–°', 'success');
+ showToast('数据已刷新', 'success');
  }
 }
 
 // ========================================
-// äº‹ä»¶ç»‘å®š
+// 事件绑定
 // ========================================
 function bindEvents() {
- // å¸ç§é€‰æ‹©å™¨
+ // 币种选择器
  const symbolSelector = document.getElementById('symbolSelector');
  if (symbolSelector) {
  symbolSelector.addEventListener('change', async (e) => {
@@ -1012,7 +1012,7 @@ function bindEvents() {
  });
  }
  
- // äº¤æ˜“æ‰€é€‰æ‹©å™¨
+ // 交易所选择器
  const exchangeSelector = document.getElementById('exchangeSelector');
  if (exchangeSelector) {
  exchangeSelector.addEventListener('change', async (e) => {
@@ -1021,7 +1021,7 @@ function bindEvents() {
  });
  }
  
- // å¸‚åœºç±»åž‹é€‰æ‹©å™¨
+ // 市场类型选择器
  const marketTypeSelector = document.getElementById('marketTypeSelector');
  if (marketTypeSelector) {
  marketTypeSelector.addEventListener('change', async (e) => {
@@ -1030,7 +1030,7 @@ function bindEvents() {
  });
  }
  
- // ä¸Šæ–¹ä¿¡å·å›¾å‘¨æœŸåˆ‡æ¢
+ // 上方信号图周期切换
  document.querySelectorAll('.chart-container-enhanced .chart-btn').forEach((btn) => {
  btn.addEventListener('click', async (e) => {
  const controls = e.currentTarget.closest('.chart-controls');
@@ -1041,7 +1041,7 @@ function bindEvents() {
  });
  });
 
- // ä¸‹æ–¹å¸‚åœºè¶‹åŠ¿å›¾å‘¨æœŸåˆ‡æ¢
+ // 下方市场趋势图周期切换
  document.querySelectorAll('.chart-container .chart-btn').forEach((btn) => {
  btn.addEventListener('click', async (e) => {
  const controls = e.currentTarget.closest('.chart-controls');
@@ -1052,7 +1052,7 @@ function bindEvents() {
  });
  });
  
- // åˆ·æ–°æŒ‰é’®
+ // 刷新按钮
  const refreshBtn = document.getElementById('refreshBtn');
  if (refreshBtn) {
  refreshBtn.addEventListener('click', refreshData);
@@ -1115,7 +1115,7 @@ async function updateChartPeriod(period) {
 }
 
 // ========================================
-// è¾…åŠ©å‡½æ•°
+// 辅助函数
 // ========================================
 function generateSparklineData(min, max) {
  const data = [];
@@ -1162,5 +1162,6 @@ function generateTimeLabels(count, unit = 'hour') {
  return labels;
 }
 
-// å¯¼å‡ºåˆ·æ–°å‡½æ•°
+// 导出刷新函数
 window.refreshCryptoData = refreshData;
+
