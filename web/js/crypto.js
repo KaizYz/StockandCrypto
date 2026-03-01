@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 let cryptoCharts = {};
 let trendChart = null;
+let signalChart = null;
 let symbolsData = [];
 let currentSymbol = 'BTCUSDT';
 let currentExchange = 'binance';

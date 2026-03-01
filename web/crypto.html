@@ -1,326 +1,345 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>加密货币预测 - StockandCrypto</title>
-<link rel="stylesheet" href="css/style.css">
-<link rel="stylesheet" href="css/components.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>加密货币预测 - StockandCrypto</title>
+ <link rel="stylesheet" href="css/style.css">
+ <link rel="stylesheet" href="css/components.css">
+ <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-<!-- Header Navigation -->
-<header class="header">
-<div class="header-container">
-<div class="logo">
-<a href="index.html" style="display: flex; align-items: center; gap: 0.5rem;">
-<span class="logo-icon">◈</span>
-<span class="logo-text">StockandCrypto</span>
-</a>
-</div>
-<nav class="nav">
-<button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
-<span></span>
-<span></span>
-<span></span>
-</button>
-<ul class="nav-menu" id="navMenu">
-<li><a href="index.html" class="nav-link">首页</a></li>
-<li><a href="crypto.html" class="nav-link active">Crypto</a></li>
-<li><a href="cn-equity.html" class="nav-link">A股</a></li>
-<li><a href="us-equity.html" class="nav-link">美股</a></li>
-<li><a href="session-crypto.html" class="nav-link">时段预测</a></li>
-</ul>
-</nav>
-<div class="nav-actions">
-<a href="login.html" class="btn btn-secondary btn-sm">登录</a>
-</div>
-</div>
-</header>
+ <!-- Header Navigation -->
+ <header class="header">
+ <div class="header-container">
+ <div class="logo">
+ <a href="index.html" style="display: flex; align-items: center; gap: 0.5rem;">
+ <span class="logo-icon">◈</span>
+ <span class="logo-text">StockandCrypto</span>
+ </a>
+ </div>
+ <nav class="nav">
+ <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+ <span></span>
+ <span></span>
+ <span></span>
+ </button>
+ <ul class="nav-menu" id="navMenu">
+ <li><a href="index.html" class="nav-link">首页</a></li>
+ <li><a href="crypto.html" class="nav-link active">Crypto</a></li>
+ <li><a href="cn-equity.html" class="nav-link">A股</a></li>
+ <li><a href="us-equity.html" class="nav-link">美股</a></li>
+ <li><a href="session-crypto.html" class="nav-link">时段预测</a></li>
+ </ul>
+ </nav>
+ <div class="nav-actions">
+ <a href="login.html" class="btn btn-secondary btn-sm">登录</a>
+ </div>
+ </div>
+ </header>
 
-<!-- Main Content -->
-<main class="main-content">
-<!-- Page Header -->
-<section class="page-header">
-<div class="container">
-<div class="page-header-content">
-<span class="page-tag">加密货币</span>
-<h1 class="page-title">Crypto 市场预测</h1>
-<p class="page-desc">AI 驱动的加密货币趋势分析与价格预测</p>
-</div>
-</div>
-</section>
+ <!-- Main Content -->
+ <main class="main-content">
+ <!-- Page Header -->
+ <section class="page-header">
+ <div class="container">
+ <div class="page-header-content">
+ <span class="page-tag">加密货币</span>
+ <h1 class="page-title">Crypto 市场预测</h1>
+ <p class="page-desc">AI 驱动的加密货币趋势分析与价格预测</p>
+ </div>
+ </div>
+ </section>
 
-<!-- Symbol Selector -->
-<section class="section-padding">
-<div class="container">
-<div class="selector-container">
-<div class="selector-header">
-<h3 class="selector-title">选择币种</h3>
-<span class="selector-hint">选择一个币种查看详细预测信号</span>
-</div>
-<div class="selector-row">
-<select id="symbolSelector" class="symbol-select">
-<option value="BTCUSDT">BTC/USDT - Bitcoin</option>
-<option value="ETHUSDT">ETH/USDT - Ethereum</option>
-<option value="SOLUSDT">SOL/USDT - Solana</option>
-<option value="DOGEUSDT">DOGE/USDT - Dogecoin</option>
-<option value="XRPUSDT">XRP/USDT - Ripple</option>
-<option value="ADAUSDT">ADA/USDT - Cardano</option>
-</select>
-<select id="exchangeSelector" class="symbol-select">
-<option value="binance">Binance</option>
-<option value="bybit">Bybit</option>
-</select>
-<select id="marketTypeSelector" class="symbol-select">
-<option value="perp">永续合约</option>
-<option value="spot">现货</option>
-</select>
-<button id="refreshBtn" class="refresh-btn">
-<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-<path d="M23 4v6h-6M1 20v-6h6"/>
-<path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-</svg>
-<span>刷新</span>
-</button>
-</div>
-</div>
-</div>
-</section>
+ <!-- Symbol Selector -->
+ <section class="section-padding">
+ <div class="container">
+ <div class="selector-container">
+ <div class="selector-header">
+ <h3 class="selector-title">选择币种</h3>
+ <span class="selector-hint">选择一个币种查看详细预测信号</span>
+ </div>
+ <div class="selector-row">
+ <select id="symbolSelector" class="symbol-select">
+ <option value="BTCUSDT">BTC/USDT - Bitcoin</option>
+ <option value="ETHUSDT">ETH/USDT - Ethereum</option>
+ <option value="SOLUSDT">SOL/USDT - Solana</option>
+ <option value="DOGEUSDT">DOGE/USDT - Dogecoin</option>
+ <option value="XRPUSDT">XRP/USDT - Ripple</option>
+ <option value="ADAUSDT">ADA/USDT - Cardano</option>
+ </select>
+ <select id="exchangeSelector" class="symbol-select">
+ <option value="binance">Binance</option>
+ <option value="bybit">Bybit</option>
+ </select>
+ <select id="marketTypeSelector" class="symbol-select">
+ <option value="perp">永续合约</option>
+ <option value="spot">现货</option>
+ </select>
+ <button id="refreshBtn" class="refresh-btn">
+ <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+ <path d="M23 4v6h-6M1 20v-6h6"/>
+ <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+ </svg>
+ <span>刷新</span>
+ </button>
+ </div>
+ </div>
+ </div>
+ </section>
 
-<!-- Prediction Signal Card -->
-<section class="section-padding section-dark">
-<div class="container">
-<div class="section-header">
-<h2 class="section-title">AI 预测信号</h2>
-<p class="section-desc">基于机器学习模型的实时预测</p>
-</div>
+ <!-- Prediction Signal Card + Chart Two Column Layout -->
+ <section class="section-padding section-dark">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">AI 预测信号</h2>
+ <p class="section-desc">基于机器学习模型的实时预测</p>
+ </div>
+ <!-- Two Column Layout -->
+ <div class="layout-two-column">
+ <!-- Left: Main Signal Card -->
+ <div class="signal-card-main" id="signalCardMain">
+ <div class="signal-header">
+ <div>
+ <div class="signal-symbol" id="signalSymbol">BTCUSDT</div>
+ <div class="signal-code" id="signalCode">Bitcoin</div>
+ </div>
+ <div class="signal-time" id="signalTime">--</div>
+ </div>
+ <div class="signal-body">
+ <div class="signal-action" id="signalActionContainer">
+ <span class="action-label">策略动作</span>
+ <span class="action-value flat" id="signalAction">Flat</span>
+ </div>
+ <div class="signal-price">
+ <div class="price-row">
+ <span class="price-label">当前价格</span>
+ <span class="price-value" id="currentPrice">$--</span>
+ </div>
+ <div class="price-row">
+ <span class="price-label">目标价格 (q50)</span>
+ <span class="price-value" id="targetPrice">$--</span>
+ </div>
+ </div>
+ </div>
+ <div class="signal-probabilities">
+ <div class="prob-item">
+ <span class="prob-label">上涨概率 (p_up)</span>
+ <div class="prob-bar-container">
+ <div class="prob-bar" id="pUpBar" style="width: 50%"></div>
+ </div>
+ <span class="prob-value" id="pUpValue">50.0%</span>
+ </div>
+ <div class="prob-item">
+ <span class="prob-label">下跌概率 (p_down)</span>
+ <div class="prob-bar-container">
+ <div class="prob-bar bear" id="pDownBar" style="width: 50%"></div>
+ </div>
+ <span class="prob-value" id="pDownValue">50.0%</span>
+ </div>
+ </div>
+ <div class="signal-confidence">
+ <span class="confidence-label">置信度 (confidence)</span>
+ <div class="confidence-bar-container">
+ <div class="confidence-bar-fill" id="confidenceBar" style="width: 60%"></div>
+ </div>
+ <span class="confidence-value" id="confidenceValue">60%</span>
+ </div>
+ <div class="signal-details">
+ <div class="detail-row">
+ <span class="detail-label">预期涨跌幅</span>
+ <span class="detail-value" id="q50Change">--</span>
+ </div>
+ <div class="detail-row">
+ <span class="detail-label">波动强度</span>
+ <span class="detail-value" id="volatilityScore">--</span>
+ </div>
+ <div class="detail-row">
+ <span class="detail-label">信号强度</span>
+ <span class="detail-value" id="signalStrength">--</span>
+ </div>
+ <div class="detail-row">
+ <span class="detail-label">趋势</span>
+ <span class="detail-value" id="trendLabel">--</span>
+ </div>
+ <div class="detail-row">
+ <span class="detail-label">风险等级</span>
+ <span class="detail-value" id="riskLevel">--</span>
+ </div>
+ <div class="detail-row">
+ <span class="detail-label">建议仓位</span>
+ <span class="detail-value" id="positionSize">--</span>
+ </div>
+ </div>
+ </div>
+ <!-- Right: Chart -->
+ <div class="chart-container-enhanced">
+ <div class="chart-header">
+ <h3 class="chart-title">价格走势</h3>
+ <div class="chart-controls">
+ <button class="chart-btn active" data-period="1H">1时</button>
+ <button class="chart-btn" data-period="1D">1天</button>
+ <button class="chart-btn" data-period="1W">1周</button>
+ </div>
+ </div>
+ <div class="chart-wrapper">
+ <canvas id="signalChart" height="350"></canvas>
+ </div>
+ </div>
+ </div>
+ </div>
+ </section>
 
-<!-- Main Signal Card -->
-<div class="signal-card-main" id="signalCardMain">
-<div class="signal-header">
-<div class="signal-symbol" id="signalSymbol">BTCUSDT</div>
-<div class="signal-time" id="signalTime">--</div>
-</div>
-<div class="signal-body">
-<div class="signal-action" id="signalActionContainer">
-<span class="action-label">策略动作</span>
-<span class="action-value flat" id="signalAction">Flat</span>
-</div>
-<div class="signal-price">
-<div class="price-row">
-<span class="price-label">当前价格</span>
-<span class="price-value" id="currentPrice">$--</span>
-</div>
-<div class="price-row">
-<span class="price-label">目标价格 (q50)</span>
-<span class="price-value" id="targetPrice">$--</span>
-</div>
-</div>
-</div>
-<div class="signal-probabilities">
-<div class="prob-item">
-<span class="prob-label">上涨概率 (p_up)</span>
-<div class="prob-bar-container">
-<div class="prob-bar" id="pUpBar" style="width: 50%"></div>
-</div>
-<span class="prob-value" id="pUpValue">50.0%</span>
-</div>
-<div class="prob-item">
-<span class="prob-label">下跌概率 (p_down)</span>
-<div class="prob-bar-container">
-<div class="prob-bar bear" id="pDownBar" style="width: 50%"></div>
-</div>
-<span class="prob-value" id="pDownValue">50.0%</span>
-</div>
-</div>
-<div class="signal-confidence">
-<span class="confidence-label">置信度 (confidence)</span>
-<div class="confidence-bar-container">
-<div class="confidence-bar-fill" id="confidenceBar" style="width: 60%"></div>
-</div>
-<span class="confidence-value" id="confidenceValue">60%</span>
-</div>
-<div class="signal-details">
-<div class="detail-row">
-<span class="detail-label">预期涨跌幅 (q50)</span>
-<span class="detail-value" id="q50Change">--</span>
-</div>
-<div class="detail-row">
-<span class="detail-label">波动强度 (volatility)</span>
-<span class="detail-value" id="volatilityScore">--</span>
-</div>
-<div class="detail-row">
-<span class="detail-label">信号强度</span>
-<span class="detail-value" id="signalStrength">--</span>
-</div>
-<div class="detail-row">
-<span class="detail-label">趋势</span>
-<span class="detail-value" id="trendLabel">--</span>
-</div>
-<div class="detail-row">
-<span class="detail-label">风险等级</span>
-<span class="detail-value" id="riskLevel">--</span>
-</div>
-<div class="detail-row">
-<span class="detail-label">建议仓位</span>
-<span class="detail-value" id="positionSize">--</span>
-</div>
-</div>
-</div>
-</div>
-</section>
+ <!-- Market Overview -->
+ <section class="section-padding">
+ <div class="container">
+ <div class="section-header">
+ <h2 class="section-title">实时行情</h2>
+ <p class="section-desc">主流加密货币实时价格与24小时变动</p>
+ </div>
+ <div class="crypto-grid" id="cryptoGrid">
+ <!-- BTC Card -->
+ <div class="crypto-card" data-symbol="BTC">
+ <div class="crypto-header">
+ <div class="crypto-info">
+ <span class="crypto-icon">₿</span>
+ <div class="crypto-details">
+ <span class="crypto-name">Bitcoin</span>
+ <span class="crypto-symbol">BTC</span>
+ </div>
+ </div>
+ <span class="crypto-change positive" id="btcChange">+0.00%</span>
+ </div>
+ <div class="crypto-price">
+ <span class="price-currency">$</span>
+ <span class="price-value" id="btcPrice">--</span>
+ </div>
+ <div class="crypto-chart">
+ <canvas id="btcChart" height="100"></canvas>
+ </div>
+ <div class="crypto-stats">
+ <div class="stat-item">
+ <span class="stat-label">24h 最高</span>
+ <span class="stat-value" id="btcHigh">--</span>
+ </div>
+ <div class="stat-item">
+ <span class="stat-label">24h 最低</span>
+ <span class="stat-value" id="btcLow">--</span>
+ </div>
+ <div class="stat-item">
+ <span class="stat-label">成交量</span>
+ <span class="stat-value" id="btcVolume">--</span>
+ </div>
+ </div>
+ </div>
+ <!-- ETH Card -->
+ <div class="crypto-card" data-symbol="ETH">
+ <div class="crypto-header">
+ <div class="crypto-info">
+ <span class="crypto-icon">Ξ</span>
+ <div class="crypto-details">
+ <span class="crypto-name">Ethereum</span>
+ <span class="crypto-symbol">ETH</span>
+ </div>
+ </div>
+ <span class="crypto-change positive" id="ethChange">+0.00%</span>
+ </div>
+ <div class="crypto-price">
+ <span class="price-currency">$</span>
+ <span class="price-value" id="ethPrice">--</span>
+ </div>
+ <div class="crypto-chart">
+ <canvas id="ethChart" height="100"></canvas>
+ </div>
+ <div class="crypto-stats">
+ <div class="stat-item">
+ <span class="stat-label">24h 最高</span>
+ <span class="stat-value" id="ethHigh">--</span>
+ </div>
+ <div class="stat-item">
+ <span class="stat-label">24h 最低</span>
+ <span class="stat-value" id="ethLow">--</span>
+ </div>
+ <div class="stat-item">
+ <span class="stat-label">成交量</span>
+ <span class="stat-value" id="ethVolume">--</span>
+ </div>
+ </div>
+ </div>
+ <!-- SOL Card -->
+ <div class="crypto-card" data-symbol="SOL">
+ <div class="crypto-header">
+ <div class="crypto-info">
+ <span class="crypto-icon">◎</span>
+ <div class="crypto-details">
+ <span class="crypto-name">Solana</span>
+ <span class="crypto-symbol">SOL</span>
+ </div>
+ </div>
+ <span class="crypto-change negative" id="solChange">-0.00%</span>
+ </div>
+ <div class="crypto-price">
+ <span class="price-currency">$</span>
+ <span class="price-value" id="solPrice">--</span>
+ </div>
+ <div class="crypto-chart">
+ <canvas id="solChart" height="100"></canvas>
+ </div>
+ <div class="crypto-stats">
+ <div class="stat-item">
+ <span class="stat-label">24h 最高</span>
+ <span class="stat-value" id="solHigh">--</span>
+ </div>
+ <div class="stat-item">
+ <span class="stat-label">24h 最低</span>
+ <span class="stat-value" id="solLow">--</span>
+ </div>
+ <div class="stat-item">
+ <span class="stat-label">成交量</span>
+ <span class="stat-value" id="solVolume">--</span>
+ </div>
+ </div>
+ </div>
+ </div>
+ </div>
+ </section>
 
-<!-- Market Overview -->
-<section class="section-padding">
-<div class="container">
-<div class="section-header">
-<h2 class="section-title">实时行情</h2>
-<p class="section-desc">主流加密货币实时价格与24小时变动</p>
-</div>
-<div class="crypto-grid" id="cryptoGrid">
-<!-- BTC Card -->
-<div class="crypto-card" data-symbol="BTC">
-<div class="crypto-header">
-<div class="crypto-info">
-<span class="crypto-icon">₿</span>
-<div class="crypto-details">
-<span class="crypto-name">Bitcoin</span>
-<span class="crypto-symbol">BTC</span>
-</div>
-</div>
-<span class="crypto-change positive" id="btcChange">+0.00%</span>
-</div>
-<div class="crypto-price">
-<span class="price-currency">$</span>
-<span class="price-value" id="btcPrice">--</span>
-</div>
-<div class="crypto-chart">
-<canvas id="btcChart" height="100"></canvas>
-</div>
-<div class="crypto-stats">
-<div class="stat-item">
-<span class="stat-label">24h 最高</span>
-<span class="stat-value" id="btcHigh">--</span>
-</div>
-<div class="stat-item">
-<span class="stat-label">24h 最低</span>
-<span class="stat-value" id="btcLow">--</span>
-</div>
-<div class="stat-item">
-<span class="stat-label">成交量</span>
-<span class="stat-value" id="btcVolume">--</span>
-</div>
-</div>
-</div>
-<!-- ETH Card -->
-<div class="crypto-card" data-symbol="ETH">
-<div class="crypto-header">
-<div class="crypto-info">
-<span class="crypto-icon">Ξ</span>
-<div class="crypto-details">
-<span class="crypto-name">Ethereum</span>
-<span class="crypto-symbol">ETH</span>
-</div>
-</div>
-<span class="crypto-change positive" id="ethChange">+0.00%</span>
-</div>
-<div class="crypto-price">
-<span class="price-currency">$</span>
-<span class="price-value" id="ethPrice">--</span>
-</div>
-<div class="crypto-chart">
-<canvas id="ethChart" height="100"></canvas>
-</div>
-<div class="crypto-stats">
-<div class="stat-item">
-<span class="stat-label">24h 最高</span>
-<span class="stat-value" id="ethHigh">--</span>
-</div>
-<div class="stat-item">
-<span class="stat-label">24h 最低</span>
-<span class="stat-value" id="ethLow">--</span>
-</div>
-<div class="stat-item">
-<span class="stat-label">成交量</span>
-<span class="stat-value" id="ethVolume">--</span>
-</div>
-</div>
-</div>
-<!-- SOL Card -->
-<div class="crypto-card" data-symbol="SOL">
-<div class="crypto-header">
-<div class="crypto-info">
-<span class="crypto-icon">◎</span>
-<div class="crypto-details">
-<span class="crypto-name">Solana</span>
-<span class="crypto-symbol">SOL</span>
-</div>
-</div>
-<span class="crypto-change negative" id="solChange">-0.00%</span>
-</div>
-<div class="crypto-price">
-<span class="price-currency">$</span>
-<span class="price-value" id="solPrice">--</span>
-</div>
-<div class="crypto-chart">
-<canvas id="solChart" height="100"></canvas>
-</div>
-<div class="crypto-stats">
-<div class="stat-item">
-<span class="stat-label">24h 最高</span>
-<span class="stat-value" id="solHigh">--</span>
-</div>
-<div class="stat-item">
-<span class="stat-label">24h 最低</span>
-<span class="stat-value" id="solLow">--</span>
-</div>
-<div class="stat-item">
-<span class="stat-label">成交量</span>
-<span class="stat-value" id="solVolume">--</span>
-</div>
-</div>
-</div>
-</div>
-</div>
-</section>
+ <!-- Market Trend Chart -->
+ <section class="section-padding section-dark">
+ <div class="container">
+ <div class="chart-container">
+ <div class="chart-header">
+ <h3 class="chart-title">市场趋势</h3>
+ <div class="chart-controls">
+ <button class="chart-btn active" data-period="1D">1天</button>
+ <button class="chart-btn" data-period="1W">1周</button>
+ <button class="chart-btn" data-period="1M">1月</button>
+ <button class="chart-btn" data-period="1Y">1年</button>
+ </div>
+ </div>
+ <div class="chart-wrapper" style="height: 350px;">
+ <canvas id="trendChart" height="350"></canvas>
+ </div>
+ </div>
+ </div>
+ </section>
+ </main>
 
-<!-- Market Trend Chart -->
-<section class="section-padding">
-<div class="container">
-<div class="chart-container">
-<div class="chart-header">
-<h3 class="chart-title">市场趋势</h3>
-<div class="chart-controls">
-<button class="chart-btn active" data-period="1D">1天</button>
-<button class="chart-btn" data-period="1W">1周</button>
-<button class="chart-btn" data-period="1M">1月</button>
-<button class="chart-btn" data-period="1Y">1年</button>
-</div>
-</div>
-<div class="chart-wrapper">
-<canvas id="trendChart" height="300"></canvas>
-</div>
-</div>
-</div>
-</section>
-</main>
+ <!-- Footer -->
+ <footer class="footer">
+ <div class="container">
+ <div class="footer-bottom" style="border-top: none; padding-top: 0;">
+ <p class="copyright">© 2024 StockandCrypto. All rights reserved.</p>
+ <div class="footer-legal">
+ <a href="#">隐私政策</a>
+ <a href="#">服务条款</a>
+ </div>
+ </div>
+ </div>
+ </footer>
 
-<!-- Footer -->
-<footer class="footer">
-<div class="container">
-<div class="footer-bottom" style="border-top: none; padding-top: 0;">
-<p class="copyright">© 2024 StockandCrypto. All rights reserved.</p>
-<div class="footer-legal">
-<a href="#">隐私政策</a>
-<a href="#">服务条款</a>
-</div>
-</div>
-</div>
-</footer>
-
-<script src="js/api.js"></script>
-<script src="js/main.js"></script>
-<script src="js/crypto.js"></script>
+ <script src="js/api.js"></script>
+ <script src="js/main.js"></script>
+ <script src="js/crypto.js"></script>
 </body>
 </html>

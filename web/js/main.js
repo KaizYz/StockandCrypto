@@ -5,10 +5,10 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize all modules
     initNavigation();
-    initParticles();
+    // initParticles(); // Disabled
     initCountUp();
     initScrollReveal();
-    initCharts();
+    // initCharts(); // Disabled
     initPriceAnimation();
 });
 
